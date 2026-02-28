@@ -9,8 +9,9 @@
   "scripts": {
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test": "jest --passWithNoTests",
+    "test:coverage": "jest --coverage --passWithNoTests",
+    "test:e2e": "echo 'E2E tests will be added when services exist' && exit 0"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
