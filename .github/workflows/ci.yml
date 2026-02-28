@@ -1,0 +1,287 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  unit-tests:
+    name: Unit Tests
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+        continue-on-error: true
+
+      - name: Archive coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+        if: always()
+
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
+      has-changes: ${{ steps.set-flag.outputs.has-changes }}
+      build-all: ${{ steps.set-build-all.outputs.build-all }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for root config changes
+        id: check-root
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            root:
+              - 'package.json'
+              - 'package-lock.json'
+              - '.eslintrc.json'
+              - '.prettierrc.json'
+              - 'jest.config.js'
+              - 'tsconfig.json'
+
+      - name: Set build-all flag
+        id: set-build-all
+        run: |
+          if [ "${{ steps.check-root.outputs.root }}" == "true" ]; then
+            echo "build-all=true" >> $GITHUB_OUTPUT
+            echo "🔄 Root configuration changed - will build all services"
+          else
+            echo "build-all=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for service changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            book-service:
+              - 'services/book-service/**'
+            loan-service:
+              - 'services/loan-service/**'
+            user-service:
+              - 'services/user-service/**'
+            notification-service:
+              - 'services/notification-service/**'
+
+      - name: Set has-changes flag
+        id: set-flag
+        run: |
+          if [ "${{ steps.check-root.outputs.root }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.book-service }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.loan-service }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.user-service }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.notification-service }}" == "true" ]; then
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-changes=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    name: Build Docker Images
+    needs: [unit-tests, detect-changes]
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    strategy:
+      matrix:
+        service: [book-service, loan-service, user-service, notification-service]
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if service should build
+        id: check_service
+        run: |
+          SERVICE_CHANGED="${{ needs.detect-changes.outputs.services }}"
+          BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
+
+          if [[ "$SERVICE_CHANGED" == *"${{ matrix.service }}"* ]] || [ "$BUILD_ALL" == "true" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️  ${{ matrix.service }} not changed - skipping"
+            exit 0
+          fi
+
+          if [ -d "services/${{ matrix.service }}" ] && [ -f "services/${{ matrix.service }}/Dockerfile" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Service ${{ matrix.service }} not found yet - skipping"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.check_service.outputs.changed == 'true' && steps.check_service.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        if: steps.check_service.outputs.changed == 'true' && steps.check_service.outputs.exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/${{ matrix.service }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  e2e-tests:
+    name: End-to-End Tests
+    needs: [unit-tests, detect-changes]
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Check if docker-compose exists
+        id: check_compose
+        run: |
+          if [ -f "docker-compose.yml" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Found docker-compose.yml"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️  docker-compose.yml not found - skipping E2E tests"
+          fi
+
+      - name: Install dependencies
+        if: steps.check_compose.outputs.exists == 'true'
+        run: npm ci
+
+      - name: Start services
+        if: steps.check_compose.outputs.exists == 'true'
+        run: docker-compose up -d
+
+      - name: Wait for services to be healthy
+        if: steps.check_compose.outputs.exists == 'true'
+        run: |
+          echo "Waiting for services to be ready..."
+          timeout=120
+          elapsed=0
+
+          until docker-compose ps | grep -q "Up (healthy)" || [ $elapsed -ge $timeout ]; do
+            echo "Waiting for services... ($elapsed/$timeout seconds)"
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+
+          if [ $elapsed -ge $timeout ]; then
+            echo "⚠️  Services did not become healthy in time"
+            docker-compose ps
+            docker-compose logs
+          else
+            echo "✅ Services are healthy"
+          fi
+
+      - name: Run E2E tests
+        if: steps.check_compose.outputs.exists == 'true'
+        run: npm run test:e2e
+
+      - name: Show service logs on failure
+        if: failure() && steps.check_compose.outputs.exists == 'true'
+        run: docker-compose logs
+
+      - name: Stop services
+        if: always() && steps.check_compose.outputs.exists == 'true'
+        run: docker-compose down -v
+
+      - name: Archive E2E test results
+        if: always() && steps.check_compose.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: test-results/
+        continue-on-error: true
+
+  sonarcloud:
+    name: SonarCloud Analysis
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=library-microservices
+            -Dsonar.organization=${{ github.repository_owner }}
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+        continue-on-error: true
