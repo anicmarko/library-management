@@ -42,6 +42,9 @@ jobs:
     name: Unit Tests
     needs: lint
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
