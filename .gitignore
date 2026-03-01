@@ -9,6 +9,7 @@ node_modules/
 
 # Test coverage
 coverage/
+test-results/
 
 # Build output
 dist/
