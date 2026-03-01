@@ -3,8 +3,7 @@ name: CI Pipeline
 on:
   push:
     branches:
-      - main
-      - develop
+      - '**'
     paths-ignore:
       - '**.md'
       - '.gitignore'
@@ -140,7 +139,11 @@ jobs:
     name: Build Docker Images
     needs: [unit-tests, detect-changes]
     runs-on: ubuntu-latest
-    if: needs.detect-changes.outputs.has-changes == 'true'
+    if: |
+      needs.detect-changes.outputs.has-changes == 'true' &&
+      (github.event_name == 'pull_request' || 
+       github.ref == 'refs/heads/main' || 
+       github.ref == 'refs/heads/develop')
     strategy:
       matrix:
         service: [book-service, loan-service, user-service, notification-service]
@@ -186,7 +189,11 @@ jobs:
   e2e-tests:
     name: End-to-End Tests
     needs: [unit-tests, detect-changes]
-    if: needs.detect-changes.outputs.has-changes == 'true'
+    if: |
+      needs.detect-changes.outputs.has-changes == 'true' &&
+      (github.event_name == 'pull_request' || 
+       github.ref == 'refs/heads/main' || 
+       github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -262,6 +269,10 @@ jobs:
     name: SonarCloud Analysis
     needs: unit-tests
     runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' || 
+      github.ref == 'refs/heads/main' || 
+      github.ref == 'refs/heads/develop'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
