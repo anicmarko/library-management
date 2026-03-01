@@ -9,3 +9,6 @@ coverage
 .vscode
 .idea
 *.log
+tests
+jest.config.js
+*.test.js
