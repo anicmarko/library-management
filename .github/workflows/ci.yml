@@ -58,6 +58,14 @@ jobs:
       - name: Run tests with coverage
         run: npm run test:coverage
 
+      - name: Publish Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Unit Test Results
+          path: '**/test-results/*.xml'
+          reporter: jest-junit
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
