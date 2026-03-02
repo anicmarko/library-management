@@ -140,9 +140,10 @@ jobs:
       - name: Set build-all flag
         id: set-build-all
         run: |
-          if [ "${{ steps.check-root.outputs.root }}" == "true" ]; then
+          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ] || \
+             [ "${{ steps.check-root.outputs.root }}" == "true" ]; then
             echo "build-all=true" >> $GITHUB_OUTPUT
-            echo "🔄 Root configuration changed - will build all services"
+            echo "🔄 Building all services"
           else
             echo "build-all=false" >> $GITHUB_OUTPUT
           fi
@@ -164,6 +165,15 @@ jobs:
       - name: Set has-changes flag
         id: set-flag
         run: |
+          # First push of a new branch has no previous commit to diff against —
+          # github.event.before is all zeros, so paths-filter outputs nothing.
+          # In this case run everything.
+          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            echo "🆕 New branch detected - running all services"
+            exit 0
+          fi
+
           if [ "${{ steps.check-root.outputs.root }}" == "true" ] || \
              [ "${{ steps.filter.outputs.book-service }}" == "true" ] || \
              [ "${{ steps.filter.outputs.loan-service }}" == "true" ] || \
