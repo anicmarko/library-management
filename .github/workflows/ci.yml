@@ -10,7 +10,7 @@ on:
   pull_request:
     branches:
       - main
-      - develop
+      - dev
     paths-ignore:
       - '**.md'
       - '.gitignore'
@@ -19,6 +19,84 @@ env:
   NODE_VERSION: '20'
 
 jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      book-service: ${{ steps.filter.outputs.book-service }}
+      loan-service: ${{ steps.filter.outputs.loan-service }}
+      user-service: ${{ steps.filter.outputs.user-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+      has-changes: ${{ steps.set-flag.outputs.has-changes }}
+      build-all: ${{ steps.set-build-all.outputs.build-all }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for root config changes
+        id: check-root
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            root:
+              - 'package.json'
+              - 'package-lock.json'
+              - '.eslintrc.json'
+              - '.prettierrc.json'
+              - 'jest.config.js'
+              - 'tsconfig.json'
+
+      - name: Set build-all flag
+        id: set-build-all
+        run: |
+          # Only trigger build-all when shared root config files change
+          if [ "${{ steps.check-root.outputs.root }}" == "true" ]; then
+            echo "build-all=true" >> $GITHUB_OUTPUT
+            echo "🔄 Root config changed - building all services"
+          else
+            echo "build-all=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for service changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            book-service:
+              - 'services/book-service/**'
+            loan-service:
+              - 'services/loan-service/**'
+            user-service:
+              - 'services/user-service/**'
+            notification-service:
+              - 'services/notification-service/**'
+
+      - name: Set has-changes flag
+        id: set-flag
+        run: |
+          IS_NEW_BRANCH=false
+          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
+            IS_NEW_BRANCH=true
+            echo "🆕 New branch detected - running all services"
+          fi
+
+          BUILD_ALL="${{ steps.set-build-all.outputs.build-all }}"
+          BOOK="${{ steps.filter.outputs.book-service }}"
+          LOAN="${{ steps.filter.outputs.loan-service }}"
+          USER="${{ steps.filter.outputs.user-service }}"
+          NOTIF="${{ steps.filter.outputs.notification-service }}"
+
+          if [ "$IS_NEW_BRANCH" == "true" ] || \
+             [ "$BUILD_ALL" == "true" ] || \
+             [ "$BOOK" == "true" ] || \
+             [ "$LOAN" == "true" ] || \
+             [ "$USER" == "true" ] || \
+             [ "$NOTIF" == "true" ]; then
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-changes=false" >> $GITHUB_OUTPUT
+          fi
+
   lint:
     name: Lint Code
     runs-on: ubuntu-latest
@@ -54,15 +132,26 @@ jobs:
       - name: Check if service changed
         id: check_service
         run: |
-          SERVICE_CHANGED="${{ needs.detect-changes.outputs.services }}"
           BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
+          IS_NEW_BRANCH=false
+          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
+            IS_NEW_BRANCH=true
+          fi
 
-          if [[ "$SERVICE_CHANGED" == *"${{ matrix.service }}"* ]] || [ "$BUILD_ALL" == "true" ]; then
+          # Map matrix.service to its individual detect-changes output
+          case "${{ matrix.service }}" in
+            book-service)         CHANGED="${{ needs.detect-changes.outputs.book-service }}" ;;
+            loan-service)         CHANGED="${{ needs.detect-changes.outputs.loan-service }}" ;;
+            user-service)         CHANGED="${{ needs.detect-changes.outputs.user-service }}" ;;
+            notification-service) CHANGED="${{ needs.detect-changes.outputs.notification-service }}" ;;
+          esac
+
+          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "run=true" >> $GITHUB_OUTPUT
-            echo "✅ ${{ matrix.service }} changed - running tests"
+            echo "✅ ${{ matrix.service }} - running tests"
           else
             echo "run=false" >> $GITHUB_OUTPUT
-            echo "⏭️  ${{ matrix.service }} not changed - skipping tests"
+            echo "⏭️  ${{ matrix.service }} not changed - skipping"
           fi
 
       - name: Checkout code
@@ -113,77 +202,6 @@ jobs:
           name: coverage-report-${{ matrix.service }}
           path: services/${{ matrix.service }}/coverage/
 
-  detect-changes:
-    name: Detect Changed Services
-    runs-on: ubuntu-latest
-    outputs:
-      services: ${{ steps.filter.outputs.changes }}
-      has-changes: ${{ steps.set-flag.outputs.has-changes }}
-      build-all: ${{ steps.set-build-all.outputs.build-all }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Check for root config changes
-        id: check-root
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            root:
-              - 'package.json'
-              - 'package-lock.json'
-              - '.eslintrc.json'
-              - '.prettierrc.json'
-              - 'jest.config.js'
-              - 'tsconfig.json'
-
-      - name: Set build-all flag
-        id: set-build-all
-        run: |
-          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ] || \
-             [ "${{ steps.check-root.outputs.root }}" == "true" ]; then
-            echo "build-all=true" >> $GITHUB_OUTPUT
-            echo "🔄 Building all services"
-          else
-            echo "build-all=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check for service changes
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            book-service:
-              - 'services/book-service/**'
-            loan-service:
-              - 'services/loan-service/**'
-            user-service:
-              - 'services/user-service/**'
-            notification-service:
-              - 'services/notification-service/**'
-
-      - name: Set has-changes flag
-        id: set-flag
-        run: |
-          # First push of a new branch has no previous commit to diff against —
-          # github.event.before is all zeros, so paths-filter outputs nothing.
-          # In this case run everything.
-          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
-            echo "has-changes=true" >> $GITHUB_OUTPUT
-            echo "🆕 New branch detected - running all services"
-            exit 0
-          fi
-
-          if [ "${{ steps.check-root.outputs.root }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.book-service }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.loan-service }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.user-service }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.notification-service }}" == "true" ]; then
-            echo "has-changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "has-changes=false" >> $GITHUB_OUTPUT
-          fi
-
   build:
     name: Build Docker Images
     needs: [unit-tests, detect-changes]
@@ -192,7 +210,7 @@ jobs:
       needs.detect-changes.outputs.has-changes == 'true' &&
       (github.event_name == 'pull_request' || 
        github.ref == 'refs/heads/main' || 
-       github.ref == 'refs/heads/develop')
+       github.ref == 'refs/heads/dev')
     strategy:
       matrix:
         service: [book-service, loan-service, user-service, notification-service]
@@ -204,10 +222,20 @@ jobs:
       - name: Check if service should build
         id: check_service
         run: |
-          SERVICE_CHANGED="${{ needs.detect-changes.outputs.services }}"
           BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
+          IS_NEW_BRANCH=false
+          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
+            IS_NEW_BRANCH=true
+          fi
 
-          if [[ "$SERVICE_CHANGED" == *"${{ matrix.service }}"* ]] || [ "$BUILD_ALL" == "true" ]; then
+          case "${{ matrix.service }}" in
+            book-service)         CHANGED="${{ needs.detect-changes.outputs.book-service }}" ;;
+            loan-service)         CHANGED="${{ needs.detect-changes.outputs.loan-service }}" ;;
+            user-service)         CHANGED="${{ needs.detect-changes.outputs.user-service }}" ;;
+            notification-service) CHANGED="${{ needs.detect-changes.outputs.notification-service }}" ;;
+          esac
+
+          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "changed=false" >> $GITHUB_OUTPUT
@@ -219,7 +247,7 @@ jobs:
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️  Service ${{ matrix.service }} not found yet - skipping"
+            echo "⚠️  Dockerfile not found for ${{ matrix.service }} - skipping"
           fi
 
       - name: Set up Docker Buildx
@@ -242,7 +270,7 @@ jobs:
       needs.detect-changes.outputs.has-changes == 'true' &&
       (github.event_name == 'pull_request' || 
        github.ref == 'refs/heads/main' || 
-       github.ref == 'refs/heads/develop')
+       github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -321,7 +349,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' || 
       github.ref == 'refs/heads/main' || 
-      github.ref == 'refs/heads/develop'
+      github.ref == 'refs/heads/dev'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
