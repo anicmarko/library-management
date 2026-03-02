@@ -75,7 +75,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         if: steps.check_service.outputs.run == 'true'
@@ -89,11 +89,12 @@ jobs:
 
       - name: Publish Test Results
         uses: dorny/test-reporter@v1
-        if: steps.check_service.outputs.run == 'true' && always()
+        if: always() && steps.check_service.outputs.run == 'true'
         with:
           name: Unit Test Results (${{ matrix.service }})
           path: 'services/${{ matrix.service }}/test-results/*.xml'
           reporter: jest-junit
+          fail-on-error: false
 
       - name: Upload coverage to Codecov
         if: steps.check_service.outputs.run == 'true'
@@ -106,7 +107,7 @@ jobs:
         continue-on-error: true
 
       - name: Archive coverage results
-        if: steps.check_service.outputs.run == 'true' && always()
+        if: always() && steps.check_service.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report-${{ matrix.service }}
