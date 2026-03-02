@@ -56,11 +56,15 @@ jest.mock('../../src/utils/logger', () => ({
 const app = require('../../src/index');
 const subscriber = require('../../src/messaging/subscriber');
 const publisher = require('../../src/messaging/publisher');
+const db = require('../../src/db/db');
 
 describe('Loan Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
+    mockGetLoanModel.mockReturnValue(mockLoanModel);
+    db.getConnectionStatus.mockReturnValue({ connected: true, dialect: 'postgres', database: 'loansdb' });
+
     mockLoanModel.findAll.mockResolvedValue([mockLoan]);
     mockLoanModel.findByPk.mockResolvedValue(mockLoan);
     mockLoanModel.create.mockResolvedValue(mockLoan);
