@@ -1,22 +1,30 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
+RUN npm install --production
 
-# Install dependencies
-RUN npm install --omit=dev
+FROM node:20-alpine
 
-# Copy application code
-COPY . .
+RUN apk add --no-cache dumb-init
 
-# Expose port
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+# Create the data directory for SQLite and give ownership to nodejs user
+RUN mkdir -p /app/data && chown nodejs:nodejs /app/data
+
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+
+COPY --chown=nodejs:nodejs . .
+
+USER nodejs
+
 EXPOSE 3004
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:3004/health || exit 1
 
-# Run the application
-CMD ["node", "index.js"]
+CMD ["dumb-init", "node", "src/index.js"]
