@@ -1,22 +1,37 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --omit=dev
+RUN npm install
 
-# Copy application code
-COPY . .
+COPY src ./src
 
-# Expose port
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+RUN apk add --no-cache dumb-init
+
+COPY package*.json ./
+
+RUN npm install --omit=dev && \
+    npm cache clean --force
+
+COPY --from=builder /app/src ./src
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
+
+USER nodejs
+
 EXPOSE 3002
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:3002/health || exit 1
 
-# Run the application
-CMD ["node", "index.js"]
+ENTRYPOINT ["dumb-init", "--"]
+
+CMD ["node", "src/index.js"]
