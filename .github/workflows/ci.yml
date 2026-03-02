@@ -39,51 +39,78 @@ jobs:
         run: npm run lint
 
   unit-tests:
-    name: Unit Tests
-    needs: lint
+    name: Unit Tests (${{ matrix.service }})
+    needs: [lint, detect-changes]
     runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.has-changes == 'true'
     permissions:
       checks: write
       contents: read
+    strategy:
+      matrix:
+        service: [book-service, loan-service, user-service, notification-service]
+      fail-fast: false
     steps:
+      - name: Check if service changed
+        id: check_service
+        run: |
+          SERVICE_CHANGED="${{ needs.detect-changes.outputs.services }}"
+          BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
+
+          if [[ "$SERVICE_CHANGED" == *"${{ matrix.service }}"* ]] || [ "$BUILD_ALL" == "true" ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+            echo "✅ ${{ matrix.service }} changed - running tests"
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+            echo "⏭️  ${{ matrix.service }} not changed - skipping tests"
+          fi
+
       - name: Checkout code
+        if: steps.check_service.outputs.run == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
+        if: steps.check_service.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
 
       - name: Install dependencies
+        if: steps.check_service.outputs.run == 'true'
+        working-directory: services/${{ matrix.service }}
         run: npm ci
 
       - name: Run tests with coverage
-        run: npm run test:coverage
+        if: steps.check_service.outputs.run == 'true'
+        working-directory: services/${{ matrix.service }}
+        run: npm test
 
       - name: Publish Test Results
         uses: dorny/test-reporter@v1
-        if: always()
+        if: steps.check_service.outputs.run == 'true' && always()
         with:
-          name: Unit Test Results
-          path: '**/test-results/*.xml'
+          name: Unit Test Results (${{ matrix.service }})
+          path: 'services/${{ matrix.service }}/test-results/*.xml'
           reporter: jest-junit
 
       - name: Upload coverage to Codecov
+        if: steps.check_service.outputs.run == 'true'
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          flags: unittests
-          name: codecov-umbrella
+          files: services/${{ matrix.service }}/coverage/lcov.info
+          flags: ${{ matrix.service }}
+          name: codecov-${{ matrix.service }}
         continue-on-error: true
 
       - name: Archive coverage results
+        if: steps.check_service.outputs.run == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
-          path: coverage/
-        if: always()
+          name: coverage-report-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage/
 
   detect-changes:
     name: Detect Changed Services
@@ -219,12 +246,12 @@ jobs:
       - name: Check if docker-compose exists
         id: check_compose
         run: |
-          if [ -f "docker-compose.yml" ]; then
+          if [ -f "docker-compose.yaml" ] || [ -f "docker-compose.yml" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Found docker-compose.yml"
+            echo "✅ Found docker-compose file"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️  docker-compose.yml not found - skipping E2E tests"
+            echo "⚠️  docker-compose file not found - skipping E2E tests"
           fi
 
       - name: Install dependencies
@@ -290,11 +317,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download coverage report
+      - name: Download coverage reports
         uses: actions/download-artifact@v4
         with:
-          name: coverage-report
+          pattern: coverage-report-*
+          merge-multiple: true
           path: coverage/
+        continue-on-error: true
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
@@ -305,5 +334,5 @@ jobs:
           args: >
             -Dsonar.projectKey=library-microservices
             -Dsonar.organization=${{ github.repository_owner }}
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.javascript.lcov.reportPaths=coverage/**/lcov.info
         continue-on-error: true
