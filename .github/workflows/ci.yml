@@ -40,50 +40,89 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    needs: lint
+    needs: [lint, detect-changes]
     runs-on: ubuntu-latest
     permissions:
       checks: write
       contents: read
+    strategy:
+      matrix:
+        service: [book-service, loan-service, user-service, notification-service]
+      fail-fast: false
     steps:
+      - name: Check if service should test
+        id: check_service
+        run: |
+          SERVICE_CHANGED="${{ needs.detect-changes.outputs.services }}"
+          BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
+
+          if [[ "$SERVICE_CHANGED" == *"${{ matrix.service }}"* ]] || [ "$BUILD_ALL" == "true" ]; then
+            echo "should_test=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_test=false" >> $GITHUB_OUTPUT
+            echo "⏭️  ${{ matrix.service }} not changed - skipping tests"
+          fi
+
       - name: Checkout code
+        if: steps.check_service.outputs.should_test == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
+        if: steps.check_service.outputs.should_test == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+
+      - name: Check if tests exist
+        if: steps.check_service.outputs.should_test == 'true'
+        id: check_tests
+        run: |
+          if [ -f "services/${{ matrix.service }}/package.json" ] && \
+             grep -q '"test"' "services/${{ matrix.service }}/package.json"; then
+            echo "has_tests=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_tests=false" >> $GITHUB_OUTPUT
+            echo "⚠️  No tests found for ${{ matrix.service }} - skipping"
+          fi
 
       - name: Install dependencies
-        run: npm ci
+        if: steps.check_service.outputs.should_test == 'true' && steps.check_tests.outputs.has_tests == 'true'
+        run: cd services/${{ matrix.service }} && npm install
 
       - name: Run tests with coverage
-        run: npm run test:coverage
+        if: steps.check_service.outputs.should_test == 'true' && steps.check_tests.outputs.has_tests == 'true'
+        run: cd services/${{ matrix.service }} && npm test -- --coverage --reporters=default --reporters=jest-junit
+        env:
+          JEST_JUNIT_OUTPUT_DIR: test-results
+          JEST_JUNIT_OUTPUT_NAME: junit.xml
+        continue-on-error: false
 
       - name: Publish Test Results
         uses: dorny/test-reporter@v1
-        if: always()
+        if: steps.check_service.outputs.should_test == 'true' && steps.check_tests.outputs.has_tests == 'true' && always()
         with:
-          name: Unit Test Results
-          path: '**/test-results/*.xml'
+          name: Unit Test Results - ${{ matrix.service }}
+          path: 'services/${{ matrix.service }}/test-results/*.xml'
           reporter: jest-junit
+        continue-on-error: true
 
       - name: Upload coverage to Codecov
+        if: steps.check_service.outputs.should_test == 'true' && steps.check_tests.outputs.has_tests == 'true'
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          flags: unittests
-          name: codecov-umbrella
+          files: services/${{ matrix.service }}/coverage/lcov.info
+          flags: ${{ matrix.service }}
+          name: ${{ matrix.service }}-coverage
         continue-on-error: true
 
       - name: Archive coverage results
+        if: steps.check_service.outputs.should_test == 'true' && steps.check_tests.outputs.has_tests == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
-          path: coverage/
-        if: always()
+          name: coverage-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage/
+        continue-on-error: true
 
   detect-changes:
     name: Detect Changed Services
