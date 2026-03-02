@@ -300,7 +300,7 @@ jobs:
 
       - name: Start services
         if: steps.check_compose.outputs.exists == 'true'
-        run: docker-compose up -d
+        run: docker compose up -d
 
       - name: Wait for services to be healthy
         if: steps.check_compose.outputs.exists == 'true'
@@ -309,7 +309,7 @@ jobs:
           timeout=120
           elapsed=0
 
-          until docker-compose ps | grep -q "Up (healthy)" || [ $elapsed -ge $timeout ]; do
+          until docker compose ps | grep -q "Up (healthy)" || [ $elapsed -ge $timeout ]; do
             echo "Waiting for services... ($elapsed/$timeout seconds)"
             sleep 5
             elapsed=$((elapsed + 5))
@@ -317,8 +317,8 @@ jobs:
 
           if [ $elapsed -ge $timeout ]; then
             echo "⚠️  Services did not become healthy in time"
-            docker-compose ps
-            docker-compose logs
+            docker compose ps
+            docker compose logs
           else
             echo "✅ Services are healthy"
           fi
@@ -329,11 +329,11 @@ jobs:
 
       - name: Show service logs on failure
         if: failure() && steps.check_compose.outputs.exists == 'true'
-        run: docker-compose logs
+        run: docker compose logs
 
       - name: Stop services
         if: always() && steps.check_compose.outputs.exists == 'true'
-        run: docker-compose down -v
+        run: docker compose down -v
 
       - name: Archive E2E test results
         if: always() && steps.check_compose.outputs.exists == 'true'
