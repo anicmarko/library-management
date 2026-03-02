@@ -141,12 +141,12 @@ jobs:
         with:
           filters: |
             root:
-              - 'package.json'
-              - 'package-lock.json'
-              - '.eslintrc.json'
-              - '.prettierrc.json'
-              - 'jest.config.js'
-              - 'tsconfig.json'
+              - './package.json'
+              - './package-lock.json'
+              - './.eslintrc.json'
+              - './.prettierrc.json'
+              - './jest.config.js'
+              - './tsconfig.json'
 
       - name: Set build-all flag
         id: set-build-all
