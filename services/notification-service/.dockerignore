@@ -6,6 +6,9 @@ npm-debug.log
 README.md
 .DS_Store
 coverage
+test-results
+data
+*.db
 .vscode
 .idea
 *.log
