@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "jest --passWithNoTests",
+    "test:all": "npm run test --workspaces --if-present",
     "test:coverage": "jest --coverage --passWithNoTests",
     "test:e2e": "echo 'E2E tests will be added when services exist' && exit 0"
   },
