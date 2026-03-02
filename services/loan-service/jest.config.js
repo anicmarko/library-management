@@ -10,8 +10,6 @@ module.exports = {
   verbose: true,
   forceExit: true,
   clearMocks: true,
-  resetMocks: true,
-  restoreMocks: true,
   reporters: [
     'default',
     ['jest-junit', {
