@@ -370,7 +370,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.projectKey=library-microservices
+            -Dsonar.projectKey=anicmarko_library-management
             -Dsonar.organization=${{ github.repository_owner }}
             -Dsonar.javascript.lcov.reportPaths=coverage/**/lcov.info
         continue-on-error: true
