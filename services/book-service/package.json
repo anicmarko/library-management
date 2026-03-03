@@ -11,6 +11,9 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@opentelemetry/auto-instrumentations-node": "^0.56.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
     "amqplib": "^0.10.3",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
