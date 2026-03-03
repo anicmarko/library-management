@@ -120,7 +120,7 @@ app.post('/loans', async (req, res) => {
     }
 
     const loan = await Loan.create({
-      bookId: Number.parseInt(bookId),
+      bookId: String(bookId),
       userId: Number.parseInt(userId),
       dueDate: parsedDueDate,
       status: 'active'
