@@ -6,6 +6,7 @@ const { connectDB, getConnectionStatus, disconnectDB } = require('./db/db');
 const publisher = require('./messaging/publisher');
 const subscriber = require('./messaging/subscriber');
 const Book = require('./models/bookModel');
+const { register, metricsMiddleware } = require('./metrics');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -13,6 +14,7 @@ const PORT = process.env.PORT || 3001;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
+app.use(metricsMiddleware);
 
 app.get('/health', (req, res) => {
   res.json({
@@ -21,6 +23,11 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     db: getConnectionStatus()
   });
+});
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
 
 
