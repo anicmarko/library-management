@@ -29,7 +29,7 @@ describe('User Model Validation', () => {
         'admin+tag@company.org'
       ];
 
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
       
       validEmails.forEach(email => {
         expect(emailRegex.test(email)).toBe(true);
@@ -44,7 +44,7 @@ describe('User Model Validation', () => {
         'user @example.com'
       ];
 
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
       
       invalidEmails.forEach(email => {
         expect(emailRegex.test(email)).toBe(false);
