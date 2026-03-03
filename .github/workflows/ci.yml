@@ -30,6 +30,7 @@ jobs:
       notification-service: ${{ steps.filter.outputs.notification-service }}
       has-changes: ${{ steps.set-flag.outputs.has-changes }}
       build-all: ${{ steps.set-build-all.outputs.build-all }}
+      is-new-branch: ${{ steps.set-flag.outputs.is-new-branch }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -80,6 +81,7 @@ jobs:
             IS_NEW_BRANCH=true
             echo "🆕 New branch detected - running all services"
           fi
+          echo "is-new-branch=$IS_NEW_BRANCH" >> $GITHUB_OUTPUT
 
           BUILD_ALL="${{ steps.set-build-all.outputs.build-all }}"
           BOOK="${{ steps.filter.outputs.book-service }}"
@@ -134,10 +136,7 @@ jobs:
         id: check_service
         run: |
           BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
-          IS_NEW_BRANCH=false
-          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
-            IS_NEW_BRANCH=true
-          fi
+          IS_NEW_BRANCH="${{ needs.detect-changes.outputs.is-new-branch }}"
 
           # Map matrix.service to its individual detect-changes output
           case "${{ matrix.service }}" in
@@ -209,25 +208,18 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       needs.detect-changes.outputs.has-changes == 'true' &&
-      (github.event_name == 'pull_request' || 
-       github.ref == 'refs/heads/main' || 
-       github.ref == 'refs/heads/dev')
+      (github.ref == 'refs/heads/main' ||
+       (github.event_name == 'pull_request' && github.base_ref == 'main'))
     strategy:
       matrix:
         service: [book-service, loan-service, user-service, notification-service]
       fail-fast: false
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Check if service should build
         id: check_service
         run: |
           BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
-          IS_NEW_BRANCH=false
-          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
-            IS_NEW_BRANCH=true
-          fi
+          IS_NEW_BRANCH="${{ needs.detect-changes.outputs.is-new-branch }}"
 
           case "${{ matrix.service }}" in
             book-service)         CHANGED="${{ needs.detect-changes.outputs.book-service }}" ;;
@@ -238,25 +230,22 @@ jobs:
 
           if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
+            echo "✅ ${{ matrix.service }} - building"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "⏭️  ${{ matrix.service }} not changed - skipping"
-            exit 0
           fi
 
-          if [ -d "services/${{ matrix.service }}" ] && [ -f "services/${{ matrix.service }}/Dockerfile" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️  Dockerfile not found for ${{ matrix.service }} - skipping"
-          fi
+      - name: Checkout code
+        if: steps.check_service.outputs.changed == 'true'
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        if: steps.check_service.outputs.changed == 'true' && steps.check_service.outputs.exists == 'true'
+        if: steps.check_service.outputs.changed == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
-        if: steps.check_service.outputs.changed == 'true' && steps.check_service.outputs.exists == 'true'
+        if: steps.check_service.outputs.changed == 'true'
         uses: docker/build-push-action@v5
         with:
           context: ./services/${{ matrix.service }}
@@ -269,9 +258,8 @@ jobs:
     needs: [unit-tests, detect-changes]
     if: |
       needs.detect-changes.outputs.has-changes == 'true' &&
-      (github.event_name == 'pull_request' || 
-       github.ref == 'refs/heads/main' || 
-       github.ref == 'refs/heads/dev')
+      (github.ref == 'refs/heads/main' ||
+       (github.event_name == 'pull_request' && github.base_ref == 'main'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -345,12 +333,13 @@ jobs:
 
   sonarcloud:
     name: SonarCloud Analysis
-    needs: unit-tests
+    needs: [unit-tests, detect-changes]
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'pull_request' || 
-      github.ref == 'refs/heads/main' || 
-      github.ref == 'refs/heads/dev'
+      needs.detect-changes.outputs.has-changes == 'true' &&
+      (github.event_name == 'pull_request' || 
+       github.ref == 'refs/heads/main' || 
+       github.ref == 'refs/heads/dev')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
