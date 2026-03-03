@@ -4,20 +4,27 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --production
+RUN npm install
 
-FROM node:20-alpine
+COPY src ./src
 
-RUN apk add --no-cache dumb-init
-
-
-RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+FROM node:20-alpine AS production
 
 WORKDIR /app
 
-COPY --from=builder --chown=nodejs:nodejs --chmod=555 /app/node_modules ./node_modules
+RUN apk add --no-cache dumb-init
 
-COPY --chown=nodejs:nodejs --chmod=555 . .
+COPY package*.json ./
+
+RUN npm install --omit=dev && \
+    npm cache clean --force && \
+    chmod -R a-w node_modules
+
+COPY --from=builder --chmod=555 /app/src ./src
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
 
 USER nodejs
 
@@ -26,4 +33,7 @@ EXPOSE 3003
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:3003/health || exit 1
 
-CMD ["dumb-init", "node", "src/index.js"]
+ENTRYPOINT ["dumb-init", "--"]
+
+CMD ["node", "src/index.js"]
+
