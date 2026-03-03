@@ -18,7 +18,7 @@ RUN apk add --no-cache dumb-init
 COPY services/shared/ /workspace/shared/
 COPY services/book-service/package*.json ./
 
-RUN npm install --omit=dev && \
+RUN npm install --omit=dev --ignore-scripts && \
     npm cache clean --force && \
     chmod -R a-w node_modules
 
