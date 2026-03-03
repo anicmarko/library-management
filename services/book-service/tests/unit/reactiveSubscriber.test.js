@@ -53,8 +53,8 @@ describe('createEventStream', () => {
 
     const sub = stream$.subscribe({
       next: event => {
-        expect(event.bookId).toBe('book-1');
-        expect(event._routingKey).toBe('loan.created');
+        expect(event.payload.bookId).toBe('book-1');
+        expect(event.routingKey).toBe('loan.created');
         expect(channel.ack).toHaveBeenCalledTimes(1);
         sub.unsubscribe();
         done();
@@ -138,7 +138,7 @@ describe('handleEvent via stream (loan.created)', () => {
   test('marks book unavailable on loan.created', done => {
     Book.findById.mockResolvedValueOnce({ ...mockBook, available: true, save: jest.fn().mockResolvedValue() });
 
-    handleEvent({ _routingKey: 'loan.created', bookId: 'b1', loanId: 'l1' }).then(() => {
+    handleEvent({ routingKey: 'loan.created', payload: { bookId: 'b1', loanId: 'l1' } }).then(() => {
       expect(Book.findById).toHaveBeenCalledWith('b1');
       done();
     });
@@ -148,7 +148,7 @@ describe('handleEvent via stream (loan.created)', () => {
     const saveMock = jest.fn().mockResolvedValue();
     Book.findById.mockResolvedValueOnce({ available: false, save: saveMock });
 
-    handleEvent({ _routingKey: 'loan.returned', bookId: 'b2', loanId: 'l2' }).then(() => {
+    handleEvent({ routingKey: 'loan.returned', payload: { bookId: 'b2', loanId: 'l2' } }).then(() => {
       expect(Book.findById).toHaveBeenCalledWith('b2');
       expect(saveMock).toHaveBeenCalled();
       done();
@@ -159,7 +159,7 @@ describe('handleEvent via stream (loan.created)', () => {
     Book.findById.mockResolvedValueOnce(null);
     const logger = require('../../src/utils/logger');
 
-    handleEvent({ _routingKey: 'loan.created', bookId: 'missing', loanId: 'l1' }).then(() => {
+    handleEvent({ routingKey: 'loan.created', payload: { bookId: 'missing', loanId: 'l1' } }).then(() => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Book not found'),
         expect.any(Object)
@@ -169,7 +169,7 @@ describe('handleEvent via stream (loan.created)', () => {
   });
 
   test('does nothing for unrelated routing key', done => {
-    handleEvent({ _routingKey: 'user.created', bookId: 'b1' }).then(() => {
+    handleEvent({ routingKey: 'user.created', payload: { bookId: 'b1' } }).then(() => {
       expect(Book.findById).not.toHaveBeenCalled();
       done();
     });

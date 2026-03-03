@@ -1,8 +1,8 @@
 'use strict';
 
 const amqp = require('amqplib');
-const { Observable, EMPTY } = require('rxjs');
-const { map, filter, catchError, retry } = require('rxjs/operators');
+const { map } = require('rxjs/operators');
+const { createEventStream } = require('@library/shared');
 const logger = require('../utils/logger');
 const Book = require('../models/bookModel');
 
@@ -11,36 +11,8 @@ const EXCHANGE_TYPE = 'topic';
 const QUEUE_NAME = 'book-service-reactive-queue';
 const RETRY_DELAY_MS = 3000;
 
-function createEventStream(channel, queue) {
-  return new Observable(subscriber => {
-    channel.consume(queue, (msg) => {
-      if (!msg) return;
-      try {
-        const event = JSON.parse(msg.content.toString());
-        event._routingKey = msg.fields.routingKey;
-        channel.ack(msg);
-        subscriber.next(event);
-      } catch (err) {
-        subscriber.error(err);
-      }
-    });
-
-    return () => {
-      channel.cancel(queue).catch(() => {});
-    };
-  }).pipe(
-    retry(3),
-    catchError(err => {
-      logger.error('Reactive event stream error', { error: err.message });
-      return EMPTY;
-    }),
-    filter(event => event !== null)
-  );
-}
-
-
-const handleEvent = async (event) => {
-  const { _routingKey: routingKey, bookId, loanId } = event;
+const handleEvent = async ({ routingKey, payload }) => {
+  const { bookId, loanId } = payload;
 
   if (routingKey === 'loan.created') {
     const book = await Book.findById(bookId);
@@ -82,7 +54,7 @@ const startReactiveSubscribing = async () => {
       queue: QUEUE_NAME,
     });
 
-    const stream$ = createEventStream(channel, QUEUE_NAME).pipe(
+    const stream$ = createEventStream(channel, QUEUE_NAME, logger).pipe(
       map(event => ({
         ...event,
         receivedAt: new Date().toISOString(),
@@ -114,4 +86,8 @@ const startReactiveSubscribing = async () => {
   }
 };
 
-module.exports = { createEventStream, handleEvent, startReactiveSubscribing };
+module.exports = {
+  createEventStream: (channel, queue) => createEventStream(channel, queue, logger),
+  handleEvent,
+  startReactiveSubscribing,
+};
