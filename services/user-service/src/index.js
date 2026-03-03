@@ -5,6 +5,7 @@ const { requestLogger } = require('./utils/logger');
 const { connectDB, getConnectionStatus, disconnectDB, getUserModel } = require('./db/db');
 const publisher = require('./messaging/publisher');
 const subscriber = require('./messaging/subscriber');
+const { register, metricsMiddleware } = require('./metrics');
 
 const app = express();
 const PORT = process.env.PORT || 3003;
@@ -12,6 +13,7 @@ const PORT = process.env.PORT || 3003;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
+app.use(metricsMiddleware);
 
 app.get('/health', (req, res) => {
   res.json({
@@ -20,6 +22,11 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     db: getConnectionStatus()
   });
+});
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
 
 app.get('/users', async (req, res) => {

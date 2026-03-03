@@ -6,6 +6,7 @@ const { connectDB, disconnectDB } = require('./db/db');
 const subscriber = require('./messaging/subscriber');
 const Notification = require('./models/notificationModel');
 const { Op } = require('sequelize');
+const { register, metricsMiddleware } = require('./metrics');
 
 const app = express();
 const PORT = process.env.PORT || 3004;
@@ -13,6 +14,7 @@ const PORT = process.env.PORT || 3004;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
+app.use(metricsMiddleware);
 
 app.get('/health', async (req, res) => {
   try {
@@ -30,6 +32,11 @@ app.get('/health', async (req, res) => {
     logger.error('Health check error', { error: error.message });
     res.status(500).json({ status: 'error', service: 'notification-service' });
   }
+});
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
 
 app.get('/notifications', async (req, res) => {
