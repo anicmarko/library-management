@@ -10,7 +10,7 @@ RUN mkdir -p /workspace/service/data
 COPY services/shared/ /workspace/shared/
 COPY services/notification-service/package*.json ./
 
-RUN npm install --omit=dev && \
+RUN npm install --omit=dev --ignore-scripts && \
     npm cache clean --force && \
     chmod -R a-w node_modules
 
