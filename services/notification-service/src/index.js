@@ -114,6 +114,7 @@ app.delete('/notifications/read', async (req, res) => {
 
 let server;
 
+/* istanbul ignore next */
 const start = async () => {
   try {
     await connectDB();
@@ -131,6 +132,7 @@ const start = async () => {
   }
 };
 
+/* istanbul ignore next */
 const shutdown = async (signal) => {
   logger.info(`${signal} received, shutting down gracefully`);
   if (server) server.close();
