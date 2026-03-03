@@ -5,7 +5,7 @@ const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http')
 const sdk = new NodeSDK({
   serviceName: process.env.SERVICE_NAME || 'user-service',
   traceExporter: new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://jaeger:4318/v1/traces',
+    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 });

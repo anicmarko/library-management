@@ -22,7 +22,7 @@ app.use((req, res, next) => {
   const activeSpan = trace.getActiveSpan();
   const traceId = activeSpan
     ? activeSpan.spanContext().traceId
-    : (req.headers['x-trace-id'] || require('crypto').randomUUID());
+    : (req.headers['x-trace-id'] || require('node:crypto').randomUUID());
   req.traceId = traceId;
   res.setHeader('x-trace-id', traceId);
   next();
@@ -67,7 +67,7 @@ app.get('/notifications', async (req, res) => {
     const notifications = await Notification.findAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: Math.min(parseInt(limit, 10) || 50, 500)
+      limit: Math.min(Number.parseInt(limit, 10) || 50, 500)
     });
 
     res.json({
