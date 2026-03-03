@@ -86,6 +86,8 @@ services:
       PORT: 3001
       MONGODB_URI: mongodb://mongodb:27017/books
       RABBITMQ_URL: amqp://rabbitmq:5672
+      SERVICE_NAME: book-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       mongodb:
         condition: service_healthy
@@ -113,6 +115,8 @@ services:
       PORT: 3002
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/loansdb
       RABBITMQ_URL: amqp://rabbitmq:5672
+      SERVICE_NAME: loan-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,6 +148,8 @@ services:
       MYSQL_USER: library
       MYSQL_PASSWORD: library
       RABBITMQ_URL: amqp://rabbitmq:5672
+      SERVICE_NAME: user-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       mysql:
         condition: service_healthy
@@ -170,6 +176,8 @@ services:
       NODE_ENV: development
       PORT: 3004
       RABBITMQ_URL: amqp://rabbitmq:5672
+      SERVICE_NAME: notification-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -202,6 +210,23 @@ services:
       - app-network
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: library-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4318:4318"    # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:16686 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
