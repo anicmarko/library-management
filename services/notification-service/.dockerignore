@@ -1,14 +1,46 @@
+# Dependencies
 node_modules
-npm-debug.log
+npm-debug.log*
+
+# Environment / secrets
 .env
-.git
-.gitignore
-README.md
-.DS_Store
+.env.*
+*.local
+*.pem
+*.key
+*.cert
+*.crt
+*.secret
+
+# Tests & coverage
+tests
+jest.config.js
+*.test.js
 coverage
 test-results
+
+# SQLite data
 data
 *.db
+*.sqlite
+
+# Build / Docker meta
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# VCS & IDE
+.git
+.gitignore
+.github
 .vscode
 .idea
+
+# OS
+.DS_Store
+
+# Logs & docs
 *.log
+README.md
+*.md
+
