@@ -26,6 +26,12 @@ jest.mock('../../src/messaging/subscriber', () => ({
   handleEvent: jest.fn()
 }));
 
+jest.mock('../../src/messaging/reactiveSubscriber', () => ({
+  startReactiveSubscribing: jest.fn().mockResolvedValue(true),
+  createEventStream: jest.fn(),
+  handleEvent: jest.fn()
+}));
+
 jest.mock('../../src/utils/logger', () => {
   const mockLogger = {
     info: jest.fn(),
