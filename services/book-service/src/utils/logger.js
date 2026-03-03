@@ -1,4 +1,3 @@
-// ci-test: verify selective service detection
 const winston = require('winston');
 
 const isProduction = process.env.NODE_ENV === 'production';
