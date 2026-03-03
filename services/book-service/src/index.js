@@ -22,7 +22,7 @@ app.use((req, res, next) => {
   const activeSpan = trace.getActiveSpan();
   const traceId = activeSpan
     ? activeSpan.spanContext().traceId
-    : (req.headers['x-trace-id'] || require('crypto').randomUUID());
+    : (req.headers['x-trace-id'] || require('node:crypto').randomUUID());
   req.traceId = traceId;
   res.setHeader('x-trace-id', traceId);
   next();

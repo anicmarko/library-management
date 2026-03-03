@@ -11,7 +11,9 @@ const logFormat = winston.format.combine(
     : winston.format.combine(
         winston.format.colorize(),
         winston.format.printf(({ timestamp, level, message, ...metadata }) => {
-          let msg = `${timestamp} [${level}]: ${message}`;
+          const ts = typeof timestamp === 'string' ? timestamp : JSON.stringify(timestamp);
+          const text = typeof message === 'string' ? message : JSON.stringify(message);
+          let msg = `${ts} [${level}]: ${text}`;
           if (Object.keys(metadata).length > 0) {
             msg += ` ${JSON.stringify(metadata)}`;
           }

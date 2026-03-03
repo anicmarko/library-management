@@ -21,7 +21,7 @@ app.use((req, res, next) => {
   const activeSpan = trace.getActiveSpan();
   const traceId = activeSpan
     ? activeSpan.spanContext().traceId
-    : (req.headers['x-trace-id'] || require('crypto').randomUUID());
+    : (req.headers['x-trace-id'] || require('node:crypto').randomUUID());
   req.traceId = traceId;
   res.setHeader('x-trace-id', traceId);
   next();
@@ -169,11 +169,30 @@ app.post('/users', async (req, res) => {
   }
 });
 
+async function buildUserChanges(User, user, { name, email, active }) {
+  const changes = {};
+  if (name !== undefined && name !== user.name) {
+    changes.name = { from: user.name, to: name };
+    user.name = name;
+  }
+  if (email !== undefined && email !== user.email) {
+    const existing = await User.findOne({ where: { email }, attributes: ['id'] });
+    if (existing && existing.id !== user.id) {
+      return { error: 'email_conflict' };
+    }
+    changes.email = { from: user.email, to: email };
+    user.email = email;
+  }
+  if (active !== undefined && active !== user.active) {
+    changes.active = { from: user.active, to: active };
+    user.active = active;
+  }
+  return { changes };
+}
+
 app.put('/users/:id', async (req, res) => {
   try {
     const User = getUserModel();
-    const { name, email, active } = req.body;
-    
     const user = await User.findByPk(req.params.id);
 
     if (!user) {
@@ -183,36 +202,15 @@ app.put('/users/:id', async (req, res) => {
       });
     }
 
-    const changes = {};
-    
-    if (name !== undefined && name !== user.name) {
-      changes.name = { from: user.name, to: name };
-      user.name = name;
-    }
-    
-    if (email !== undefined && email !== user.email) {
-      // Check email uniqueness
-      const existingUser = await User.findOne({ 
-        where: { email },
-        attributes: ['id']
+    const result = await buildUserChanges(User, user, req.body);
+    if (result.error === 'email_conflict') {
+      return res.status(409).json({
+        success: false,
+        error: 'Email already exists',
+        details: { email: 'This email is already registered' }
       });
-      
-      if (existingUser && existingUser.id !== user.id) {
-        return res.status(409).json({
-          success: false,
-          error: 'Email already exists',
-          details: { email: 'This email is already registered' }
-        });
-      }
-      
-      changes.email = { from: user.email, to: email };
-      user.email = email;
     }
-    
-    if (active !== undefined && active !== user.active) {
-      changes.active = { from: user.active, to: active };
-      user.active = active;
-    }
+    const { changes } = result;
 
     await user.save();
 
