@@ -39,6 +39,7 @@ jobs:
         id: check-root
         uses: dorny/paths-filter@v3
         with:
+          base: ${{ github.event_name == 'pull_request' && github.base_ref || (github.event.before == '0000000000000000000000000000000000000000' && 'dev' || github.event.before) }}
           filters: |
             root:
               - 'package.json'
@@ -63,6 +64,7 @@ jobs:
         uses: dorny/paths-filter@v3
         id: filter
         with:
+          base: ${{ github.event_name == 'pull_request' && github.base_ref || (github.event.before == '0000000000000000000000000000000000000000' && 'dev' || github.event.before) }}
           filters: |
             book-service:
               - 'services/book-service/**'
