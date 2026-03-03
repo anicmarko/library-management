@@ -297,7 +297,7 @@ jobs:
         if: steps.check_compose.outputs.exists == 'true'
         run: |
           echo "Waiting for all services to be ready..."
-          TOTAL_SERVICES=11
+          TOTAL_SERVICES=12
           timeout=180
           elapsed=0
 
