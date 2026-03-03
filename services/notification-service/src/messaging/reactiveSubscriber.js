@@ -1,8 +1,8 @@
 'use strict';
 
 const amqp = require('amqplib');
-const { Observable, EMPTY } = require('rxjs');
-const { catchError, retry, filter, map } = require('rxjs/operators');
+const { map } = require('rxjs/operators');
+const { createEventStream } = require('@library/shared');
 const logger = require('../utils/logger');
 const Notification = require('../models/notificationModel');
 const { notificationSubject } = require('./notificationSubject');
@@ -19,35 +19,6 @@ const ROUTING_KEYS = [
 ];
 
 const SERVICE_MAP = { book: 'book-service', loan: 'loan-service', user: 'user-service' };
-
-function createEventStream(channel, queue) {
-  return new Observable(subscriber => {
-    channel.consume(queue, (msg) => {
-      if (!msg) return;
-      try {
-        const payload = JSON.parse(msg.content.toString());
-        const routingKey = msg.fields.routingKey;
-        channel.ack(msg);
-        subscriber.next({ routingKey, payload });
-      } catch (err) {
-        subscriber.error(err);
-      }
-    });
-
-    // Teardown: cancel consumer when unsubscribed
-    return () => {
-      channel.cancel(queue).catch(() => {});
-    };
-  }).pipe(
-    retry(3),
-    catchError(err => {
-      logger.error('[reactive] Event stream error', { error: err.message });
-      return EMPTY;
-    }),
-    filter(event => event !== null)
-  );
-}
-
 
 const handleEvent = async ({ routingKey, payload }) => {
   const prefix = routingKey.split('.')[0];
@@ -85,7 +56,7 @@ const startReactiveSubscribing = async () => {
       queue: QUEUE_NAME,
     });
 
-    const stream$ = createEventStream(channel, QUEUE_NAME).pipe(
+    const stream$ = createEventStream(channel, QUEUE_NAME, logger).pipe(
       map(event => ({ ...event, receivedAt: new Date().toISOString() }))
     );
 
@@ -114,4 +85,8 @@ const startReactiveSubscribing = async () => {
   }
 };
 
-module.exports = { createEventStream, handleEvent, startReactiveSubscribing };
+module.exports = {
+  createEventStream: (channel, queue) => createEventStream(channel, queue, logger),
+  handleEvent,
+  startReactiveSubscribing,
+};
