@@ -16,9 +16,9 @@ WORKDIR /app
 # Create the data directory for SQLite and give ownership to nodejs user
 RUN mkdir -p /app/data && chown nodejs:nodejs /app/data
 
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs --chmod=555 /app/node_modules ./node_modules
 
-COPY --chown=nodejs:nodejs . .
+COPY --chown=nodejs:nodejs --chmod=555 . .
 
 USER nodejs
 

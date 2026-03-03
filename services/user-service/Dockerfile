@@ -15,9 +15,9 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 
 WORKDIR /app
 
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs --chmod=555 /app/node_modules ./node_modules
 
-COPY --chown=nodejs:nodejs . .
+COPY --chown=nodejs:nodejs --chmod=555 . .
 
 USER nodejs
 

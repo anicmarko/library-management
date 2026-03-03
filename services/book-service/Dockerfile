@@ -17,9 +17,10 @@ RUN apk add --no-cache dumb-init
 COPY package*.json ./
 
 RUN npm install --omit=dev && \
-    npm cache clean --force
+    npm cache clean --force && \
+    chmod -R a-w node_modules
 
-COPY --from=builder /app/src ./src
+COPY --from=builder --chmod=555 /app/src ./src
 
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001 && \
