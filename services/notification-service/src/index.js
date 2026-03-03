@@ -6,6 +6,8 @@ const logger = require('./utils/logger');
 const { requestLogger } = require('./utils/logger');
 const { connectDB, disconnectDB } = require('./db/db');
 const subscriber = require('./messaging/subscriber');
+const reactiveSubscriber = require('./messaging/reactiveSubscriber');
+const streamRouter = require('./routes/stream');
 const Notification = require('./models/notificationModel');
 const { Op } = require('sequelize');
 const { register, metricsMiddleware } = require('./metrics');
@@ -17,6 +19,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
 app.use(metricsMiddleware);
+app.use(streamRouter);
 
 app.use((req, res, next) => {
   const activeSpan = trace.getActiveSpan();
@@ -133,6 +136,10 @@ const start = async () => {
 
     subscriber.startSubscribing().catch((err) => {
       logger.warn('RabbitMQ subscriber failed to start (non-fatal)', { error: err.message });
+    });
+
+    reactiveSubscriber.startReactiveSubscribing().catch((err) => {
+      logger.warn('Reactive subscriber failed to start (non-fatal)', { error: err.message });
     });
 
     server = app.listen(PORT, () => {
