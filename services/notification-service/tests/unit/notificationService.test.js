@@ -242,4 +242,54 @@ describe('GET /health', () => {
     expect(res.body.totalNotifications).toBe(2);
     expect(res.body.unreadCount).toBe(1);
   });
+
+  test('should return 500 when DB throws', async () => {
+    jest.spyOn(mockNotification, 'count').mockRejectedValueOnce(new Error('DB error'));
+    const res = await request(app).get('/health');
+    expect(res.status).toBe(500);
+    expect(res.body.status).toBe('error');
+    jest.restoreAllMocks();
+  });
+});
+
+describe('GET /metrics', () => {
+  test('should return prometheus metrics', async () => {
+    const res = await request(app).get('/metrics');
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/# HELP|# TYPE/);
+  });
+});
+
+describe('Error handling', () => {
+  test('GET /notifications returns 500 on DB error', async () => {
+    jest.spyOn(mockNotification, 'findAll').mockRejectedValueOnce(new Error('DB error'));
+    const res = await request(app).get('/notifications');
+    expect(res.status).toBe(500);
+    expect(res.body.success).toBe(false);
+    jest.restoreAllMocks();
+  });
+
+  test('GET /notifications/:id returns 500 on DB error', async () => {
+    jest.spyOn(mockNotification, 'findByPk').mockRejectedValueOnce(new Error('DB error'));
+    const res = await request(app).get('/notifications/1');
+    expect(res.status).toBe(500);
+    expect(res.body.success).toBe(false);
+    jest.restoreAllMocks();
+  });
+
+  test('PUT /notifications/:id/read returns 500 on DB error', async () => {
+    jest.spyOn(mockNotification, 'findByPk').mockRejectedValueOnce(new Error('DB error'));
+    const res = await request(app).put('/notifications/1/read');
+    expect(res.status).toBe(500);
+    expect(res.body.success).toBe(false);
+    jest.restoreAllMocks();
+  });
+
+  test('DELETE /notifications/read returns 500 on DB error', async () => {
+    jest.spyOn(mockNotification, 'destroy').mockRejectedValueOnce(new Error('DB error'));
+    const res = await request(app).delete('/notifications/read');
+    expect(res.status).toBe(500);
+    expect(res.body.success).toBe(false);
+    jest.restoreAllMocks();
+  });
 });
