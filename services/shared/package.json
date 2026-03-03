@@ -1,0 +1,10 @@
+{
+  "name": "@library/shared",
+  "version": "1.0.0",
+  "description": "Shared utilities for library microservices",
+  "main": "src/createEventStream.js",
+  "private": true,
+  "peerDependencies": {
+    "rxjs": ">=7.0.0"
+  }
+}
