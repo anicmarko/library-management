@@ -1,30 +1,32 @@
 FROM node:20-alpine AS builder
 
-WORKDIR /app
+WORKDIR /workspace/service
 
-COPY package*.json ./
+COPY services/shared/ /workspace/shared/
+COPY services/book-service/package*.json ./
 
 RUN npm install
 
-COPY src ./src
+COPY services/book-service/src ./src
 
 FROM node:20-alpine AS production
 
-WORKDIR /app
+WORKDIR /workspace/service
 
 RUN apk add --no-cache dumb-init
 
-COPY package*.json ./
+COPY services/shared/ /workspace/shared/
+COPY services/book-service/package*.json ./
 
 RUN npm install --omit=dev && \
     npm cache clean --force && \
     chmod -R a-w node_modules
 
-COPY --from=builder --chmod=555 /app/src ./src
+COPY --from=builder --chmod=555 /workspace/service/src ./src
 
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
+    chown -R nodejs:nodejs /workspace
 
 USER nodejs
 

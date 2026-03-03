@@ -1,24 +1,24 @@
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install --production
-
 FROM node:20-alpine
 
 RUN apk add --no-cache dumb-init
 
-RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+WORKDIR /workspace/service
 
-WORKDIR /app
+# Create the data directory for SQLite
+RUN mkdir -p /workspace/service/data
 
-# Create the data directory for SQLite and give ownership to nodejs user
-RUN mkdir -p /app/data && chown nodejs:nodejs /app/data
+COPY services/shared/ /workspace/shared/
+COPY services/notification-service/package*.json ./
 
-COPY --from=builder --chown=nodejs:nodejs --chmod=555 /app/node_modules ./node_modules
+RUN npm install --omit=dev && \
+    npm cache clean --force && \
+    chmod -R a-w node_modules
 
-COPY --chown=nodejs:nodejs --chmod=555 . .
+COPY --chmod=555 services/notification-service/src ./src
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /workspace
 
 USER nodejs
 

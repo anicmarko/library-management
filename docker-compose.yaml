@@ -75,8 +75,8 @@ services:
 
   book-service:
     build:
-      context: ./services/book-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/book-service/Dockerfile
     image: library-book-service:latest
     container_name: library-book-service
     ports:
@@ -166,8 +166,8 @@ services:
 
   notification-service:
     build:
-      context: ./services/notification-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/notification-service/Dockerfile
     image: library-notification-service:latest
     container_name: library-notification-service
     ports:
