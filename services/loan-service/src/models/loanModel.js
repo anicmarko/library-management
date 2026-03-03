@@ -8,15 +8,12 @@ const defineLoanModel = (sequelize) => {
       autoIncrement: true
     },
     bookId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.STRING,
       allowNull: false,
       field: 'book_id',
       validate: {
         notNull: {
           msg: 'Book ID is required'
-        },
-        isInt: {
-          msg: 'Book ID must be an integer'
         }
       }
     },
