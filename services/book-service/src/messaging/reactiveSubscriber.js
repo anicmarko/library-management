@@ -1,7 +1,7 @@
 'use strict';
 
 const amqp = require('amqplib');
-const { Observable, of, EMPTY } = require('rxjs');
+const { Observable, EMPTY } = require('rxjs');
 const { map, filter, catchError, retry } = require('rxjs/operators');
 const logger = require('../utils/logger');
 const Book = require('../models/bookModel');
