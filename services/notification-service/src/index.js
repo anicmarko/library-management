@@ -1,5 +1,7 @@
+require('./tracing');
 require('dotenv').config();
 const express = require('express');
+const { trace } = require('@opentelemetry/api');
 const logger = require('./utils/logger');
 const { requestLogger } = require('./utils/logger');
 const { connectDB, disconnectDB } = require('./db/db');
@@ -15,6 +17,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
 app.use(metricsMiddleware);
+
+app.use((req, res, next) => {
+  const activeSpan = trace.getActiveSpan();
+  const traceId = activeSpan
+    ? activeSpan.spanContext().traceId
+    : (req.headers['x-trace-id'] || require('crypto').randomUUID());
+  req.traceId = traceId;
+  res.setHeader('x-trace-id', traceId);
+  next();
+});
 
 app.get('/health', async (req, res) => {
   try {
