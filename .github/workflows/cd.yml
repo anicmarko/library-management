@@ -1,0 +1,252 @@
+name: CD Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci-status-check:
+    name: Check CI conclusion
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - run: echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
+
+  detect-changes:
+    name: Detect Changed Services
+    needs: [ci-status-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      book-service: ${{ steps.filter.outputs.book-service }}
+      loan-service: ${{ steps.filter.outputs.loan-service }}
+      user-service: ${{ steps.filter.outputs.user-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+      shared: ${{ steps.filter.outputs.shared }}
+      ci: ${{ steps.filter.outputs.ci }}
+      has-changes: ${{ steps.set-flag.outputs.has-changes }}
+      build-all: ${{ steps.set-build-all.outputs.build-all }}
+    steps:
+      - name: Checkout code at CI commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2 
+
+      - name: Check for path changes
+        id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
+        with:
+          base: HEAD^1
+          filters: |
+            root:
+              - 'package.json'
+              - 'package-lock.json'
+              - '.eslintrc.json'
+              - '.prettierrc.json'
+              - 'jest.config.js'
+              - 'tsconfig.json'
+            book-service:
+              - 'services/book-service/**'
+            loan-service:
+              - 'services/loan-service/**'
+            user-service:
+              - 'services/user-service/**'
+            notification-service:
+              - 'services/notification-service/**'
+            shared:
+              - 'services/shared/**'
+            ci:
+              - '.github/**'
+              - '**/Dockerfile'
+              - 'docker-compose*.y*ml'
+              - 'nginx.conf'
+
+      - name: Set build-all flag
+        id: set-build-all
+        env:
+          FILTER_ROOT: ${{ steps.filter.outputs.root }}
+        run: |
+          if [ "$FILTER_ROOT" == "true" ]; then
+            echo "build-all=true" >> $GITHUB_OUTPUT
+            echo "🔄 Root config changed - building all services"
+          else
+            echo "build-all=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set has-changes flag
+        id: set-flag
+        env:
+          BUILD_ALL: ${{ steps.set-build-all.outputs.build-all }}
+          BOOK: ${{ steps.filter.outputs.book-service }}
+          LOAN: ${{ steps.filter.outputs.loan-service }}
+          USER: ${{ steps.filter.outputs.user-service }}
+          NOTIF: ${{ steps.filter.outputs.notification-service }}
+          SHARED: ${{ steps.filter.outputs.shared }}
+          CI_CHANGED: ${{ steps.filter.outputs.ci }}
+        run: |
+          if [ "$BUILD_ALL" == "true" ] || \
+             [ "$BOOK" == "true" ] || \
+             [ "$LOAN" == "true" ] || \
+             [ "$USER" == "true" ] || \
+             [ "$NOTIF" == "true" ] || \
+             [ "$SHARED" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ]; then
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-changes=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-push:
+    name: Build & Push (${{ matrix.service }})
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    strategy:
+      matrix:
+        include:
+          - service: book-service
+            context: .
+          - service: loan-service
+            context: ./services/loan-service
+          - service: user-service
+            context: ./services/user-service
+          - service: notification-service
+            context: .
+      fail-fast: false
+    steps:
+      - name: Check if service should build
+        id: check_service
+        env:
+          MATRIX_SERVICE: ${{ matrix.service }}
+          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
+          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
+          SHARED: ${{ needs.detect-changes.outputs.shared }}
+          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
+          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
+          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
+        run: |
+          case "$MATRIX_SERVICE" in
+            book-service)         CHANGED="$CHG_BOOK" ;;
+            loan-service)         CHANGED="$CHG_LOAN" ;;
+            user-service)         CHANGED="$CHG_USER" ;;
+            notification-service) CHANGED="$CHG_NOTIF" ;;
+          esac
+
+          if [ "$BUILD_ALL" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "✅ $MATRIX_SERVICE - building"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️  $MATRIX_SERVICE not changed - skipping"
+          fi
+
+      - name: Checkout code at CI commit
+        if: steps.check_service.outputs.changed == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Docker Buildx
+        if: steps.check_service.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Azure Container Registry
+        if: steps.check_service.outputs.changed == 'true'
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        with:
+          registry: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push Docker image
+        if: steps.check_service.outputs.changed == 'true'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ${{ matrix.context }}
+          file: ./services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.event.workflow_run.head_sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy (${{ matrix.service }})
+    needs: [build-push, detect-changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    strategy:
+      matrix:
+        service: [book-service, loan-service, user-service, notification-service]
+      fail-fast: false
+    steps:
+      - name: Check if service should deploy
+        id: check_service
+        env:
+          MATRIX_SERVICE: ${{ matrix.service }}
+          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
+          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
+          SHARED: ${{ needs.detect-changes.outputs.shared }}
+          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
+          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
+          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
+        run: |
+          case "$MATRIX_SERVICE" in
+            book-service)         CHANGED="$CHG_BOOK" ;;
+            loan-service)         CHANGED="$CHG_LOAN" ;;
+            user-service)         CHANGED="$CHG_USER" ;;
+            notification-service) CHANGED="$CHG_NOTIF" ;;
+          esac
+
+          if [ "$BUILD_ALL" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
+            echo "deploy=true" >> $GITHUB_OUTPUT
+            echo "✅ $MATRIX_SERVICE - deploying"
+          else
+            echo "deploy=false" >> $GITHUB_OUTPUT
+            echo "⏭️  $MATRIX_SERVICE not changed - skipping deploy"
+          fi
+
+      - name: Deploy via SSH
+        if: steps.check_service.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@029f5b4d67adf17cc0cf6f69b49fd7b62b0c3d76 # v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/app
+            {
+              echo "NODE_ENV=production"
+              echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}"
+              echo "MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}"
+              echo "MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}"
+              echo "MONGO_ROOT_PASSWORD=${{ secrets.MONGO_ROOT_PASSWORD }}"
+              echo "MONGODB_URI=${{ secrets.MONGODB_URI }}"
+              echo "DATABASE_URL=${{ secrets.DATABASE_URL }}"
+              echo "ACR_LOGIN_SERVER=${{ secrets.ACR_LOGIN_SERVER }}"
+              echo "LOG_LEVEL=${{ vars.LOG_LEVEL }}"
+            } > .env
+            chmod 600 .env
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull ${{ matrix.service }}
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml up -d --remove-orphans ${{ matrix.service }}
