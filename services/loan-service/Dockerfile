@@ -2,6 +2,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+COPY --chmod=755 proto/ ./proto/
 COPY --chmod=755 package*.json ./
 
 RUN npm install
@@ -19,6 +20,7 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
+COPY --chmod=755 --chown=root:root proto/ ./proto/
 COPY --chmod=755 --chown=root:root package*.json ./
 
 RUN npm install --omit=dev --ignore-scripts && \

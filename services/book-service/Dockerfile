@@ -2,6 +2,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /workspace/service
 
+COPY --chmod=755 proto/ /workspace/proto/
 COPY --chmod=755 services/shared/ /workspace/shared/
 COPY --chmod=755 services/book-service/package*.json ./
 
@@ -20,6 +21,7 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /workspace/service
 
+COPY --chmod=755 --chown=root:root proto/ /workspace/proto/
 COPY --chmod=755 --chown=root:root services/shared/ /workspace/shared/
 COPY --chmod=755 --chown=root:root services/book-service/package*.json ./
 

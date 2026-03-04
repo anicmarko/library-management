@@ -81,9 +81,13 @@ services:
     container_name: library-book-service
     ports:
       - "3001:3001"
+    expose:
+      - "50051"
     environment:
       NODE_ENV: development
       PORT: 3001
+      GRPC_PORT: 50051
+      GRPC_PROTO_PATH: /workspace/proto/books.proto
       MONGODB_URI: mongodb://mongodb:27017/books
       RABBITMQ_URL: amqp://rabbitmq:5672
       SERVICE_NAME: book-service
@@ -113,6 +117,8 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3002
+      BOOK_SERVICE_GRPC_URL: book-service:50051
+      GRPC_PROTO_PATH: /app/proto/books.proto
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/loansdb
       RABBITMQ_URL: amqp://rabbitmq:5672
       SERVICE_NAME: loan-service
@@ -121,6 +127,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      book-service:
         condition: service_healthy
     networks:
       - app-network
