@@ -274,7 +274,15 @@ jobs:
        (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev')))
     strategy:
       matrix:
-        service: [book-service, loan-service, user-service, notification-service]
+        include:
+          - service: book-service
+            context: .
+          - service: loan-service
+            context: ./services/loan-service
+          - service: user-service
+            context: ./services/user-service
+          - service: notification-service
+            context: .
       fail-fast: false # allow other matrix jobs to finish even if one fails
     steps:
       - name: Check if service should build
@@ -318,7 +326,8 @@ jobs:
         if: steps.check_service.outputs.changed == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
-          context: ./services/${{ matrix.service }}
+          context: ${{ matrix.context }}
+          file: ./services/${{ matrix.service }}/Dockerfile
           # Validation only — image is not published.
           # Add registry login + push: true when ready to deploy.
           push: false
