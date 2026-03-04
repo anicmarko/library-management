@@ -2,11 +2,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY --chmod=755 package*.json ./
 
 RUN npm install
 
-COPY src ./src
+COPY --chmod=755 src ./src
 
 FROM node:20-alpine AS production
 
@@ -19,7 +19,7 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-COPY --chown=nodejs:nodejs package*.json ./
+COPY --chmod=755 --chown=nodejs:nodejs package*.json ./
 
 RUN npm install --omit=dev --ignore-scripts && \
     npm cache clean --force

@@ -2,12 +2,12 @@ FROM node:20-alpine AS builder
 
 WORKDIR /workspace/service
 
-COPY services/shared/ /workspace/shared/
-COPY services/book-service/package*.json ./
+COPY --chmod=755 services/shared/ /workspace/shared/
+COPY --chmod=755 services/book-service/package*.json ./
 
 RUN npm install
 
-COPY services/book-service/src ./src
+COPY --chmod=755 services/book-service/src ./src
 
 FROM node:20-alpine AS production
 
@@ -20,8 +20,8 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /workspace/service
 
-COPY --chown=nodejs:nodejs services/shared/ /workspace/shared/
-COPY --chown=nodejs:nodejs services/book-service/package*.json ./
+COPY --chmod=755 --chown=nodejs:nodejs services/shared/ /workspace/shared/
+COPY --chmod=755 --chown=nodejs:nodejs services/book-service/package*.json ./
 
 RUN npm install --omit=dev --ignore-scripts && \
     npm cache clean --force

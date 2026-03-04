@@ -4,8 +4,8 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /workspace/service
 
-COPY services/shared/ /workspace/shared/
-COPY services/notification-service/package*.json ./
+COPY --chmod=755 services/shared/ /workspace/shared/
+COPY --chmod=755 services/notification-service/package*.json ./
 
 RUN cd /workspace/shared && npm install --omit=dev && \
     cd /workspace/service && npm install --omit=dev && \
@@ -25,10 +25,10 @@ WORKDIR /workspace/service
 RUN mkdir -p /workspace/service/data && \
     chown nodejs:nodejs /workspace/service/data
 
-COPY --chown=nodejs:nodejs services/shared/ /workspace/shared/
+COPY --chmod=755 --chown=nodejs:nodejs services/shared/ /workspace/shared/
 COPY --from=builder --chmod=755 --chown=nodejs:nodejs /workspace/shared/node_modules /workspace/shared/node_modules
 
-COPY --chown=nodejs:nodejs services/notification-service/package*.json ./
+COPY --chmod=755 --chown=nodejs:nodejs services/notification-service/package*.json ./
 COPY --from=builder --chmod=755 --chown=nodejs:nodejs /workspace/service/node_modules ./node_modules
 
 COPY --chmod=755 --chown=nodejs:nodejs services/notification-service/src ./src
