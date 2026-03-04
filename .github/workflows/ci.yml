@@ -195,16 +195,6 @@ jobs:
           reporter: jest-junit
           fail-on-error: false
 
-      - name: Upload coverage to Codecov
-        if: steps.check_service.outputs.run == 'true'
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: services/${{ matrix.service }}/coverage/lcov.info
-          flags: ${{ matrix.service }}
-          name: codecov-${{ matrix.service }}
-        continue-on-error: true
-
       - name: Archive coverage results
         if: always() && steps.check_service.outputs.run == 'true'
         uses: actions/upload-artifact@v4
