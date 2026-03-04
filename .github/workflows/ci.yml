@@ -185,11 +185,13 @@ jobs:
 
           # shared change triggers all services to re-test
           IS_DEV_OR_MAIN=false
-          if [ "$GH_REF" == "refs/heads/dev" ] || \
-             [ "$GH_REF" == "refs/heads/main" ] || \
-             ( [ "$GH_EVENT_NAME" == "pull_request" ] && \
-               ( [ "$GH_BASE_REF" == "dev" ] || [ "$GH_BASE_REF" == "main" ] ) ); then
-            IS_DEV_OR_MAIN=true
+          case "$GH_REF" in
+            refs/heads/dev|refs/heads/main) IS_DEV_OR_MAIN=true ;;
+          esac
+          if [ "$GH_EVENT_NAME" == "pull_request" ]; then
+            case "$GH_BASE_REF" in
+              dev|main) IS_DEV_OR_MAIN=true ;;
+            esac
           fi
 
           if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || \
