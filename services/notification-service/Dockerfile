@@ -25,13 +25,13 @@ WORKDIR /workspace/service
 RUN mkdir -p /workspace/service/data && \
     chown nodejs:nodejs /workspace/service/data
 
-COPY --chmod=755 --chown=nodejs:nodejs services/shared/ /workspace/shared/
-COPY --from=builder --chmod=755 --chown=nodejs:nodejs /workspace/shared/node_modules /workspace/shared/node_modules
+COPY --chmod=755 --chown=root:root services/shared/ /workspace/shared/
+COPY --from=builder --chmod=755 --chown=root:root /workspace/shared/node_modules /workspace/shared/node_modules
 
-COPY --chmod=755 --chown=nodejs:nodejs services/notification-service/package*.json ./
-COPY --from=builder --chmod=755 --chown=nodejs:nodejs /workspace/service/node_modules ./node_modules
+COPY --chmod=755 --chown=root:root services/notification-service/package*.json ./
+COPY --from=builder --chmod=755 --chown=root:root /workspace/service/node_modules ./node_modules
 
-COPY --chmod=755 --chown=nodejs:nodejs services/notification-service/src ./src
+COPY --chmod=755 --chown=root:root services/notification-service/src ./src
 
 USER nodejs
 

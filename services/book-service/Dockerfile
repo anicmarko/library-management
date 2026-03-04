@@ -20,13 +20,13 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /workspace/service
 
-COPY --chmod=755 --chown=nodejs:nodejs services/shared/ /workspace/shared/
-COPY --chmod=755 --chown=nodejs:nodejs services/book-service/package*.json ./
+COPY --chmod=755 --chown=root:root services/shared/ /workspace/shared/
+COPY --chmod=755 --chown=root:root services/book-service/package*.json ./
 
 RUN npm install --omit=dev --ignore-scripts && \
     npm cache clean --force
 
-COPY --from=builder --chmod=755 --chown=nodejs:nodejs /workspace/service/src ./src
+COPY --from=builder --chmod=755 --chown=root:root /workspace/service/src ./src
 
 USER nodejs
 
