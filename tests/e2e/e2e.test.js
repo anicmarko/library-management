@@ -322,3 +322,57 @@ describe('5. Data Validation', () => {
     expect(res.data.success).toBe(false);
   });
 });
+
+describe('6. gRPC Book Validation on Loan Creation', () => {
+  test('6.1 POST /api/loans with non-existent bookId → 404 (gRPC: book not found)', async () => {
+    expect(createdUserId).not.toBeNull();
+
+    const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    const res = await api.post('/api/loans', {
+      bookId: '000000000000000000000000',
+      userId: createdUserId,
+      dueDate,
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.data.success).toBe(false);
+    expect(res.data.error).toMatch(/not found/i);
+  });
+
+  test('6.2 POST /api/loans with unavailable book → 409 (gRPC: book not available)', async () => {
+    expect(createdUserId).not.toBeNull();
+
+    // Create a book and immediately loan it out so it becomes unavailable
+    const bookRes = await api.post('/api/books', {
+      title: `Unavailable Book ${RUN_ID}`,
+      author: 'E2E Author',
+      isbn: `E2E-UNAVAIL-${RUN_ID}`,
+    });
+    expect(bookRes.status).toBe(201);
+    const unavailableBookId = bookRes.data.data._id;
+
+    const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    // First loan — should succeed
+    const firstLoan = await api.post('/api/loans', {
+      bookId: unavailableBookId,
+      userId: createdUserId,
+      dueDate,
+    });
+    expect(firstLoan.status).toBe(201);
+
+    await sleep(1500);
+
+    // Second loan on same book — should fail with 409
+    const secondLoan = await api.post('/api/loans', {
+      bookId: unavailableBookId,
+      userId: createdUserId,
+      dueDate,
+    });
+
+    expect(secondLoan.status).toBe(409);
+    expect(secondLoan.data.success).toBe(false);
+    expect(secondLoan.data.error).toMatch(/not available/i);
+  });
+});
