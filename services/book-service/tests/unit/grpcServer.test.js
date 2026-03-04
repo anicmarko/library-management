@@ -23,15 +23,14 @@ const mockServerInstance = {
 };
 
 jest.mock('@grpc/grpc-js', () => ({
-  Server: jest.fn(() => mockServerInstance),
-  loadPackageDefinition: jest.fn(() => ({
+  // Plain constructor — not jest.fn() so resetMocks:true cannot wipe it
+  Server: function Server() { return mockServerInstance; },
+  loadPackageDefinition: () => ({
     books: {
       BookService: { service: {} },
     },
-  })),
-  ServerCredentials: {
-    createInsecure: jest.fn(() => ({})),
-  },
+  }),
+  ServerCredentials: { createInsecure: () => ({}) },
 }));
 
 jest.mock('../../src/models/bookModel', () => ({

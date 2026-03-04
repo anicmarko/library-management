@@ -15,12 +15,12 @@ const mockCheckAvailability = jest.fn();
 const mockClientInstance = { CheckAvailability: mockCheckAvailability };
 
 jest.mock('@grpc/grpc-js', () => ({
-  loadPackageDefinition: jest.fn(() => ({
+  loadPackageDefinition: () => ({
     books: {
-      BookService: jest.fn(() => mockClientInstance),
+      BookService: function BookService() { return mockClientInstance; },
     },
-  })),
-  credentials: { createInsecure: jest.fn(() => ({})) },
+  }),
+  credentials: { createInsecure: () => ({}) },
 }));
 
 const { checkBookAvailability } = require('../../src/grpc/client');
