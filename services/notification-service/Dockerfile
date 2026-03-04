@@ -1,22 +1,46 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine AS builder
 
-WORKDIR /app
+RUN apk add --no-cache python3 make g++
 
-# Copy package files
-COPY package*.json ./
+WORKDIR /workspace/service
 
-# Install dependencies
-RUN npm install --omit=dev
+COPY --chmod=755 services/shared/ /workspace/shared/
+COPY --chmod=755 services/notification-service/package*.json ./
 
-# Copy application code
-COPY . .
+RUN cd /workspace/shared && npm install --omit=dev --ignore-scripts && \
+    npm cache clean --force
 
-# Expose port
+RUN cd /workspace/service && npm install --omit=dev --ignore-scripts && \
+    npm rebuild sqlite3 && \
+    npm cache clean --force
+
+FROM node:20-alpine
+
+ENV NODE_ENV=production
+
+RUN apk add --no-cache dumb-init
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /workspace/service
+
+RUN mkdir -p /workspace/service/data && \
+    chown nodejs:nodejs /workspace/service/data
+
+COPY --chmod=755 --chown=root:root services/shared/ /workspace/shared/
+COPY --from=builder --chmod=755 --chown=root:root /workspace/shared/node_modules /workspace/shared/node_modules
+
+COPY --chmod=755 --chown=root:root services/notification-service/package*.json ./
+COPY --from=builder --chmod=755 --chown=root:root /workspace/service/node_modules ./node_modules
+
+COPY --chmod=755 --chown=root:root services/notification-service/src ./src
+
+USER nodejs
+
 EXPOSE 3004
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:3004/health || exit 1
 
-# Run the application
-CMD ["node", "index.js"]
+CMD ["dumb-init", "node", "src/index.js"]

@@ -1,0 +1,17 @@
+# Dependencies
+**/node_modules
+
+# Coverage & test artefacts
+**/coverage
+**/test-results
+
+# Version control
+.git
+.gitignore
+
+# Docs & config not needed in images
+*.md
+sonar-project.properties
+
+# CI
+.github/

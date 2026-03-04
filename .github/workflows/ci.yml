@@ -4,92 +4,67 @@ on:
   push:
     branches:
       - main
-      - develop
+      - dev
     paths-ignore:
       - '**.md'
       - '.gitignore'
   pull_request:
     branches:
       - main
-      - develop
+      - dev
     paths-ignore:
       - '**.md'
       - '.gitignore'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   NODE_VERSION: '20'
 
 jobs:
-  lint:
-    name: Lint Code
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
-
-  unit-tests:
-    name: Unit Tests
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests with coverage
-        run: npm run test:coverage
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          flags: unittests
-          name: codecov-umbrella
-        continue-on-error: true
-
-      - name: Archive coverage results
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-        if: always()
-
   detect-changes:
     name: Detect Changed Services
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
-      services: ${{ steps.filter.outputs.changes }}
+      book-service: ${{ steps.filter.outputs.book-service }}
+      loan-service: ${{ steps.filter.outputs.loan-service }}
+      user-service: ${{ steps.filter.outputs.user-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+      shared: ${{ steps.filter.outputs.shared }}
+      ci: ${{ steps.filter.outputs.ci }}
       has-changes: ${{ steps.set-flag.outputs.has-changes }}
       build-all: ${{ steps.set-build-all.outputs.build-all }}
+      is-new-branch: ${{ steps.set-flag.outputs.is-new-branch }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Check for root config changes
-        id: check-root
-        uses: dorny/paths-filter@v3
+      - name: Compute base ref
+        id: base-ref
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_BASE_REF: ${{ github.base_ref }}
+          GH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GH_EVENT_NAME" == "pull_request" ]; then
+            BASE="$GH_BASE_REF"
+          elif [ "$GH_BEFORE" == "0000000000000000000000000000000000000000" ]; then
+            BASE="dev"
+          else
+            BASE="$GH_BEFORE"
+          fi
+          echo "base=$BASE" >> $GITHUB_OUTPUT
+
+      - name: Check for path changes
+        id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
         with:
+          base: ${{ steps.base-ref.outputs.base }}
           filters: |
             root:
               - 'package.json'
@@ -98,22 +73,6 @@ jobs:
               - '.prettierrc.json'
               - 'jest.config.js'
               - 'tsconfig.json'
-
-      - name: Set build-all flag
-        id: set-build-all
-        run: |
-          if [ "${{ steps.check-root.outputs.root }}" == "true" ]; then
-            echo "build-all=true" >> $GITHUB_OUTPUT
-            echo "🔄 Root configuration changed - will build all services"
-          else
-            echo "build-all=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check for service changes
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
             book-service:
               - 'services/book-service/**'
             loan-service:
@@ -122,91 +81,319 @@ jobs:
               - 'services/user-service/**'
             notification-service:
               - 'services/notification-service/**'
+            shared:
+              - 'services/shared/**'
+            ci:
+              - '.github/**'
+              - '**/Dockerfile'
+              - 'docker-compose*.y*ml'
+              - 'nginx.conf'
+
+      - name: Set build-all flag
+        id: set-build-all
+        env:
+          FILTER_ROOT: ${{ steps.filter.outputs.root }}
+        run: |
+          if [ "$FILTER_ROOT" == "true" ]; then
+            echo "build-all=true" >> $GITHUB_OUTPUT
+            echo "🔄 Root config changed - building all services"
+          else
+            echo "build-all=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set has-changes flag
         id: set-flag
+        env:
+          GH_BEFORE: ${{ github.event.before }}
+          BUILD_ALL: ${{ steps.set-build-all.outputs.build-all }}
+          BOOK: ${{ steps.filter.outputs.book-service }}
+          LOAN: ${{ steps.filter.outputs.loan-service }}
+          USER: ${{ steps.filter.outputs.user-service }}
+          NOTIF: ${{ steps.filter.outputs.notification-service }}
+          SHARED: ${{ steps.filter.outputs.shared }}
+          CI_CHANGED: ${{ steps.filter.outputs.ci }}
         run: |
-          if [ "${{ steps.check-root.outputs.root }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.book-service }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.loan-service }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.user-service }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.notification-service }}" == "true" ]; then
+          IS_NEW_BRANCH=false
+          if [ "$GH_BEFORE" == "0000000000000000000000000000000000000000" ]; then
+            IS_NEW_BRANCH=true
+            echo "🆕 New branch detected - running all services"
+          fi
+          echo "is-new-branch=$IS_NEW_BRANCH" >> $GITHUB_OUTPUT
+
+          if [ "$IS_NEW_BRANCH" == "true" ] || \
+             [ "$BUILD_ALL" == "true" ] || \
+             [ "$BOOK" == "true" ] || \
+             [ "$LOAN" == "true" ] || \
+             [ "$USER" == "true" ] || \
+             [ "$NOTIF" == "true" ] || \
+             [ "$SHARED" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ]; then
             echo "has-changes=true" >> $GITHUB_OUTPUT
           else
             echo "has-changes=false" >> $GITHUB_OUTPUT
           fi
 
-  build:
-    name: Build Docker Images
-    needs: [unit-tests, detect-changes]
+      - name: Save change detection outputs
+        run: |
+          {
+            echo "book-service=${{ steps.filter.outputs.book-service }}"
+            echo "loan-service=${{ steps.filter.outputs.loan-service }}"
+            echo "user-service=${{ steps.filter.outputs.user-service }}"
+            echo "notification-service=${{ steps.filter.outputs.notification-service }}"
+            echo "shared=${{ steps.filter.outputs.shared }}"
+            echo "ci=${{ steps.filter.outputs.ci }}"
+            echo "has-changes=${{ steps.set-flag.outputs.has-changes }}"
+            echo "build-all=${{ steps.set-build-all.outputs.build-all }}"
+            echo "is-new-branch=${{ steps.set-flag.outputs.is-new-branch }}"
+          } > /tmp/detect-changes.env
+
+      - name: Upload change detection outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: detect-changes-outputs
+          path: /tmp/detect-changes.env
+          retention-days: 1
+
+  lint:
+    name: Lint Code
+    needs: [detect-changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     if: needs.detect-changes.outputs.has-changes == 'true'
-    strategy:
-      matrix:
-        service: [book-service, loan-service, user-service, notification-service]
-      fail-fast: false
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  unit-tests:
+    name: Unit Tests (${{ matrix.service }})
+    needs: [lint, detect-changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: write
+      actions: read
+    strategy:
+      matrix:
+        service: [book-service, loan-service, user-service, notification-service, shared]
+      fail-fast: false
+    steps:
+      - name: Check if service changed
+        id: check_service
+        env:
+          GH_REF: ${{ github.ref }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_BASE_REF: ${{ github.base_ref }}
+          MATRIX_SERVICE: ${{ matrix.service }}
+          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
+          IS_NEW_BRANCH: ${{ needs.detect-changes.outputs.is-new-branch }}
+          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
+          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
+          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
+          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
+          SHARED: ${{ needs.detect-changes.outputs.shared }}
+        run: |
+          case "$MATRIX_SERVICE" in
+            book-service)         CHANGED="$CHG_BOOK" ;;
+            loan-service)         CHANGED="$CHG_LOAN" ;;
+            user-service)         CHANGED="$CHG_USER" ;;
+            notification-service) CHANGED="$CHG_NOTIF" ;;
+            shared)               CHANGED="$SHARED" ;;
+          esac
+
+          IS_DEV_OR_MAIN=false
+          case "$GH_REF" in
+            refs/heads/dev|refs/heads/main) IS_DEV_OR_MAIN=true ;;
+          esac
+          if [ "$GH_EVENT_NAME" == "pull_request" ]; then
+            case "$GH_BASE_REF" in
+              dev|main) IS_DEV_OR_MAIN=true ;;
+            esac
+          fi
+
+          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ] || [ "$CHANGED" == "true" ] || \
+             [ "$SHARED" == "true" ] || \
+             [ "$IS_DEV_OR_MAIN" == "true" ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+            echo "✅ $MATRIX_SERVICE - running tests"
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+            echo "⏭️  $MATRIX_SERVICE not changed - skipping"
+          fi
+
+      - name: Checkout code
+        if: steps.check_service.outputs.run == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        if: steps.check_service.outputs.run == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        if: steps.check_service.outputs.run == 'true'
+        working-directory: services/${{ matrix.service }}
+        run: npm ci
+
+      - name: Run tests with coverage
+        if: steps.check_service.outputs.run == 'true'
+        working-directory: services/${{ matrix.service }}
+        run: npm test
+
+      - name: Publish Test Results
+        uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+        if: always() && steps.check_service.outputs.run == 'true'
+        with:
+          name: Unit Test Results (${{ matrix.service }})
+          path: 'services/${{ matrix.service }}/test-results/*.xml'
+          reporter: jest-junit
+          fail-on-error: false
+
+      - name: Archive coverage results
+        if: always() && steps.check_service.outputs.run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-report-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage/
+          retention-days: 1
+
+  build:
+    name: Build & Push Docker Images (${{ matrix.service }})
+    needs: [unit-tests, detect-changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    if: |
+      needs.detect-changes.outputs.has-changes == 'true' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/dev' ||
+       (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev')))
+    strategy:
+      matrix:
+        include:
+          - service: book-service
+            context: .
+          - service: loan-service
+            context: ./services/loan-service
+          - service: user-service
+            context: ./services/user-service
+          - service: notification-service
+            context: .
+      fail-fast: false
+    steps:
       - name: Check if service should build
         id: check_service
+        env:
+          MATRIX_SERVICE: ${{ matrix.service }}
+          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
+          IS_NEW_BRANCH: ${{ needs.detect-changes.outputs.is-new-branch }}
+          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
+          SHARED: ${{ needs.detect-changes.outputs.shared }}
+          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
+          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
+          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
         run: |
-          SERVICE_CHANGED="${{ needs.detect-changes.outputs.services }}"
-          BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
+          case "$MATRIX_SERVICE" in
+            book-service)         CHANGED="$CHG_BOOK" ;;
+            loan-service)         CHANGED="$CHG_LOAN" ;;
+            user-service)         CHANGED="$CHG_USER" ;;
+            notification-service) CHANGED="$CHG_NOTIF" ;;
+          esac
 
-          if [[ "$SERVICE_CHANGED" == *"${{ matrix.service }}"* ]] || [ "$BUILD_ALL" == "true" ]; then
+          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
+            echo "✅ $MATRIX_SERVICE - building"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "⏭️  ${{ matrix.service }} not changed - skipping"
-            exit 0
+            echo "⏭️  $MATRIX_SERVICE not changed - skipping"
           fi
 
-          if [ -d "services/${{ matrix.service }}" ] && [ -f "services/${{ matrix.service }}/Dockerfile" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️  Service ${{ matrix.service }} not found yet - skipping"
-          fi
+      - name: Checkout code
+        if: steps.check_service.outputs.changed == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Docker Buildx
-        if: steps.check_service.outputs.changed == 'true' && steps.check_service.outputs.exists == 'true'
-        uses: docker/setup-buildx-action@v3
+        if: steps.check_service.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build Docker image
-        if: steps.check_service.outputs.changed == 'true' && steps.check_service.outputs.exists == 'true'
-        uses: docker/build-push-action@v5
+      - name: Log in to Azure Container Registry
+        if: steps.check_service.outputs.changed == 'true' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
         with:
-          context: ./services/${{ matrix.service }}
-          push: false
+          registry: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push Docker image
+        if: steps.check_service.outputs.changed == 'true'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ${{ matrix.context }}
+          file: ./services/${{ matrix.service }}/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   e2e-tests:
     name: End-to-End Tests
     needs: [unit-tests, detect-changes]
-    if: needs.detect-changes.outputs.has-changes == 'true'
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    if: |
+      needs.detect-changes.outputs.has-changes == 'true' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/dev' ||
+       (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev')))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Check if docker-compose exists
         id: check_compose
         run: |
-          if [ -f "docker-compose.yml" ]; then
+          if [ -f "docker-compose.yaml" ] || [ -f "docker-compose.yml" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Found docker-compose.yml"
+            echo "✅ Found docker-compose file"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️  docker-compose.yml not found - skipping E2E tests"
+            echo "⚠️  docker-compose file not found - skipping E2E tests"
           fi
 
       - name: Install dependencies
@@ -215,27 +402,36 @@ jobs:
 
       - name: Start services
         if: steps.check_compose.outputs.exists == 'true'
-        run: docker-compose up -d
+        run: docker compose up -d
 
       - name: Wait for services to be healthy
         if: steps.check_compose.outputs.exists == 'true'
         run: |
-          echo "Waiting for services to be ready..."
-          timeout=120
+          echo "Waiting for all services to be ready..."
+          TOTAL_SERVICES=$(docker compose config --services | wc -l)
+          timeout=180
           elapsed=0
 
-          until docker-compose ps | grep -q "Up (healthy)" || [ $elapsed -ge $timeout ]; do
-            echo "Waiting for services... ($elapsed/$timeout seconds)"
+          until [ $elapsed -ge $timeout ]; do
+            HEALTHY=$(docker compose ps --format json 2>/dev/null \
+              | grep -c '"Health":"healthy"' || echo 0)
+            RUNNING_NO_HC=$(docker compose ps --format json 2>/dev/null \
+              | grep '"Health":""' | grep -c '"State":"running"' || echo 0)
+            READY=$((HEALTHY + RUNNING_NO_HC))
+            echo "[$elapsed/${timeout}s] $READY/$TOTAL_SERVICES ready (healthy: $HEALTHY, no-hc: $RUNNING_NO_HC)"
+            if [ "$READY" -ge "$TOTAL_SERVICES" ]; then
+              echo "✅ All $TOTAL_SERVICES services are ready"
+              break
+            fi
             sleep 5
             elapsed=$((elapsed + 5))
           done
 
           if [ $elapsed -ge $timeout ]; then
-            echo "⚠️  Services did not become healthy in time"
-            docker-compose ps
-            docker-compose logs
-          else
-            echo "✅ Services are healthy"
+            echo "⚠️  Services did not become healthy in ${timeout}s"
+            docker compose ps
+            docker compose logs
+            exit 1
           fi
 
       - name: Run E2E tests
@@ -244,44 +440,65 @@ jobs:
 
       - name: Show service logs on failure
         if: failure() && steps.check_compose.outputs.exists == 'true'
-        run: docker-compose logs
+        run: docker compose logs
 
       - name: Stop services
         if: always() && steps.check_compose.outputs.exists == 'true'
-        run: docker-compose down -v
+        run: docker compose down -v
 
       - name: Archive E2E test results
         if: always() && steps.check_compose.outputs.exists == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-test-results
           path: test-results/
+          retention-days: 7
         continue-on-error: true
 
   sonarcloud:
     name: SonarCloud Analysis
-    needs: unit-tests
+    needs: [unit-tests, detect-changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    if: |
+      needs.detect-changes.outputs.has-changes == 'true' &&
+      (github.event_name == 'pull_request' ||
+       github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/dev') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
-      - name: Download coverage report
-        uses: actions/download-artifact@v4
+      - name: Download coverage reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: coverage-report
+          pattern: coverage-report-*
           path: coverage/
+        continue-on-error: true
+
+      - name: Prefix lcov SF paths with service directory
+        run: |
+          for lcov in coverage/coverage-report-*/lcov.info; do
+            [ -f "$lcov" ] || continue
+            service=$(echo "$lcov" | sed 's|coverage/coverage-report-\(.*\)/lcov.info|\1|')
+            echo "Prefixing SF paths in $lcov → services/$service/"
+            sed -i "s|^SF:|SF:services/$service/|g" "$lcov"
+          done
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.projectKey=library-microservices
+            -Dsonar.projectKey=anicmarko_library-management
             -Dsonar.organization=${{ github.repository_owner }}
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-        continue-on-error: true
+            -Dsonar.javascript.lcov.reportPaths=coverage/**/lcov.info
+
+

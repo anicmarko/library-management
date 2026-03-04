@@ -75,17 +75,23 @@ services:
 
   book-service:
     build:
-      context: ./services/book-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/book-service/Dockerfile
     image: library-book-service:latest
     container_name: library-book-service
     ports:
       - "3001:3001"
+    expose:
+      - "50051"
     environment:
       NODE_ENV: development
       PORT: 3001
+      GRPC_PORT: 50051
+      GRPC_PROTO_PATH: /workspace/proto/books.proto
       MONGODB_URI: mongodb://mongodb:27017/books
       RABBITMQ_URL: amqp://rabbitmq:5672
+      SERVICE_NAME: book-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       mongodb:
         condition: service_healthy
@@ -111,12 +117,18 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3002
+      BOOK_SERVICE_GRPC_URL: book-service:50051
+      GRPC_PROTO_PATH: /app/proto/books.proto
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/loansdb
       RABBITMQ_URL: amqp://rabbitmq:5672
+      SERVICE_NAME: loan-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      book-service:
         condition: service_healthy
     networks:
       - app-network
@@ -144,6 +156,8 @@ services:
       MYSQL_USER: library
       MYSQL_PASSWORD: library
       RABBITMQ_URL: amqp://rabbitmq:5672
+      SERVICE_NAME: user-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       mysql:
         condition: service_healthy
@@ -160,8 +174,8 @@ services:
 
   notification-service:
     build:
-      context: ./services/notification-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/notification-service/Dockerfile
     image: library-notification-service:latest
     container_name: library-notification-service
     ports:
@@ -170,6 +184,8 @@ services:
       NODE_ENV: development
       PORT: 3004
       RABBITMQ_URL: amqp://rabbitmq:5672
+      SERVICE_NAME: notification-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -207,6 +223,76 @@ services:
       retries: 3
       start_period: 10s
 
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: library-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4318:4318"    # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:16686 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: library-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - app-network
+    depends_on:
+      - book-service
+      - loan-service
+      - user-service
+      - notification-service
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: library-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - app-network
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
 networks:
   app-network:
     driver: bridge
@@ -221,3 +307,7 @@ volumes:
     name: library-mysql-data
   rabbitmq-data:
     name: library-rabbitmq-data
+  prometheus-data:
+    name: library-prometheus-data
+  grafana-data:
+    name: library-grafana-data

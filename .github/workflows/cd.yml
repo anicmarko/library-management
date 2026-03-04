@@ -1,0 +1,120 @@
+name: CD Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci-status-check:
+    name: Check CI conclusion
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    # Guard 1: CI must have passed
+    # Guard 2: only deploy code from this repo — never from a fork
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    steps:
+      - run: echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
+
+  load-outputs:
+    name: Load CI Change Detection Outputs
+    needs: [ci-status-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      book-service: ${{ steps.parse.outputs.book-service }}
+      loan-service: ${{ steps.parse.outputs.loan-service }}
+      user-service: ${{ steps.parse.outputs.user-service }}
+      notification-service: ${{ steps.parse.outputs.notification-service }}
+      shared: ${{ steps.parse.outputs.shared }}
+      ci: ${{ steps.parse.outputs.ci }}
+      has-changes: ${{ steps.parse.outputs.has-changes }}
+      build-all: ${{ steps.parse.outputs.build-all }}
+    steps:
+      - name: Download change detection outputs from CI
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: detect-changes-outputs
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Parse outputs
+        id: parse
+        run: |
+          while IFS='=' read -r key value; do
+            echo "${key}=${value}" >> $GITHUB_OUTPUT
+          done < detect-changes.env
+
+  deploy:
+    name: Deploy (${{ matrix.service }})
+    needs: [load-outputs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    if: needs.load-outputs.outputs.has-changes == 'true'
+    strategy:
+      matrix:
+        service: [book-service, loan-service, user-service, notification-service]
+      fail-fast: false
+    steps:
+      - name: Check if service should deploy
+        id: check_service
+        env:
+          MATRIX_SERVICE: ${{ matrix.service }}
+          BUILD_ALL: ${{ needs.load-outputs.outputs.build-all }}
+          CI_CHANGED: ${{ needs.load-outputs.outputs.ci }}
+          SHARED: ${{ needs.load-outputs.outputs.shared }}
+          CHG_BOOK: ${{ needs.load-outputs.outputs.book-service }}
+          CHG_LOAN: ${{ needs.load-outputs.outputs.loan-service }}
+          CHG_USER: ${{ needs.load-outputs.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.load-outputs.outputs.notification-service }}
+        run: |
+          case "$MATRIX_SERVICE" in
+            book-service)         CHANGED="$CHG_BOOK" ;;
+            loan-service)         CHANGED="$CHG_LOAN" ;;
+            user-service)         CHANGED="$CHG_USER" ;;
+            notification-service) CHANGED="$CHG_NOTIF" ;;
+          esac
+
+          if [ "$BUILD_ALL" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
+            echo "deploy=true" >> $GITHUB_OUTPUT
+            echo "✅ $MATRIX_SERVICE - deploying"
+          else
+            echo "deploy=false" >> $GITHUB_OUTPUT
+            echo "⏭️  $MATRIX_SERVICE not changed - skipping deploy"
+          fi
+
+      - name: Deploy via SSH
+        if: steps.check_service.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@029f5b4d67adf17cc0cf6f69b49fd7b62b0c3d76 # v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/app
+            {
+              echo "NODE_ENV=production"
+              echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}"
+              echo "MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}"
+              echo "MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}"
+              echo "MONGO_ROOT_PASSWORD=${{ secrets.MONGO_ROOT_PASSWORD }}"
+              echo "MONGODB_URI=${{ secrets.MONGODB_URI }}"
+              echo "DATABASE_URL=${{ secrets.DATABASE_URL }}"
+              echo "ACR_LOGIN_SERVER=${{ secrets.ACR_LOGIN_SERVER }}"
+              echo "LOG_LEVEL=${{ vars.LOG_LEVEL }}"
+            } > .env
+            chmod 600 .env
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull ${{ matrix.service }}
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml up -d --remove-orphans ${{ matrix.service }}

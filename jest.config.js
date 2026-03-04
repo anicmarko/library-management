@@ -1,6 +1,7 @@
 module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/*.test.js'],
+  testPathIgnorePatterns: ['/node_modules/', '/tests/e2e/'],
   collectCoverageFrom: [
     'src/**/*.js',
     '!src/**/*.test.js',
@@ -17,4 +18,11 @@ module.exports = {
     },
   },
   verbose: true,
+  reporters: [
+    'default',
+    ['jest-junit', {
+      outputDirectory: './test-results',
+      outputName: 'junit.xml'
+    }]
+  ]
 };
