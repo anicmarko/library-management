@@ -29,6 +29,7 @@ jobs:
       user-service: ${{ steps.filter.outputs.user-service }}
       notification-service: ${{ steps.filter.outputs.notification-service }}
       shared: ${{ steps.filter.outputs.shared }}
+      ci: ${{ steps.filter.outputs.ci }}
       has-changes: ${{ steps.set-flag.outputs.has-changes }}
       build-all: ${{ steps.set-build-all.outputs.build-all }}
       is-new-branch: ${{ steps.set-flag.outputs.is-new-branch }}
@@ -77,6 +78,11 @@ jobs:
               - 'services/notification-service/**'
             shared:
               - 'services/shared/**'
+            ci:
+              - '.github/**'
+              - '**/Dockerfile'
+              - 'docker-compose*.y*ml'
+              - 'nginx.conf'
 
       - name: Set has-changes flag
         id: set-flag
@@ -94,6 +100,7 @@ jobs:
           USER="${{ steps.filter.outputs.user-service }}"
           NOTIF="${{ steps.filter.outputs.notification-service }}"
           SHARED="${{ steps.filter.outputs.shared }}"
+          CI_CHANGED="${{ steps.filter.outputs.ci }}"
 
           if [ "$IS_NEW_BRANCH" == "true" ] || \
              [ "$BUILD_ALL" == "true" ] || \
@@ -101,7 +108,8 @@ jobs:
              [ "$LOAN" == "true" ] || \
              [ "$USER" == "true" ] || \
              [ "$NOTIF" == "true" ] || \
-             [ "$SHARED" == "true" ]; then
+             [ "$SHARED" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ]; then
             echo "has-changes=true" >> $GITHUB_OUTPUT
           else
             echo "has-changes=false" >> $GITHUB_OUTPUT
@@ -187,7 +195,7 @@ jobs:
         run: npm test
 
       - name: Publish Test Results
-        uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+        uses: dorny/test-reporter@5540be7d257d0059d55ee0c144ab5a516329d0a1 # v2.6.0
         if: always() && steps.check_service.outputs.run == 'true'
         with:
           name: Unit Test Results (${{ matrix.service }})
@@ -219,7 +227,7 @@ jobs:
         id: check_service
         run: |
           BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
-          IS_NEW_BRANCH="${{ needs.detect-changes.outputs.is-new-branch }}"
+          SHARED="${{ needs.detect-changes.outputs.shared }}"
 
           case "${{ matrix.service }}" in
             book-service)         CHANGED="${{ needs.detect-changes.outputs.book-service }}" ;;
@@ -228,7 +236,7 @@ jobs:
             notification-service) CHANGED="${{ needs.detect-changes.outputs.notification-service }}" ;;
           esac
 
-          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CHANGED" == "true" ]; then
+          if [ "$BUILD_ALL" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "✅ ${{ matrix.service }} - building"
           else
@@ -295,7 +303,7 @@ jobs:
         if: steps.check_compose.outputs.exists == 'true'
         run: |
           echo "Waiting for all services to be ready..."
-          TOTAL_SERVICES=12
+          TOTAL_SERVICES=$(docker compose config --services | wc -l)
           timeout=180
           elapsed=0
 
@@ -369,7 +377,7 @@ jobs:
           done
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
