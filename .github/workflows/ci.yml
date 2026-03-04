@@ -219,7 +219,7 @@ jobs:
         id: check_service
         run: |
           BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
-          IS_NEW_BRANCH="${{ needs.detect-changes.outputs.is-new-branch }}"
+          SHARED="${{ needs.detect-changes.outputs.shared }}"
 
           case "${{ matrix.service }}" in
             book-service)         CHANGED="${{ needs.detect-changes.outputs.book-service }}" ;;
@@ -228,7 +228,7 @@ jobs:
             notification-service) CHANGED="${{ needs.detect-changes.outputs.notification-service }}" ;;
           esac
 
-          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CHANGED" == "true" ]; then
+          if [ "$BUILD_ALL" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "✅ ${{ matrix.service }} - building"
           else
@@ -295,7 +295,7 @@ jobs:
         if: steps.check_compose.outputs.exists == 'true'
         run: |
           echo "Waiting for all services to be ready..."
-          TOTAL_SERVICES=12
+          TOTAL_SERVICES=$(docker compose config --services | wc -l)
           timeout=180
           elapsed=0
 
@@ -369,7 +369,7 @@ jobs:
           done
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
