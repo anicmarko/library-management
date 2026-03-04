@@ -10,7 +10,8 @@ COPY --chmod=755 services/notification-service/package*.json ./
 RUN cd /workspace/shared && npm install --omit=dev --ignore-scripts && \
     npm cache clean --force
 
-RUN cd /workspace/service && npm install --omit=dev && \
+RUN cd /workspace/service && npm install --omit=dev --ignore-scripts && \
+    npm rebuild sqlite3 && \
     npm cache clean --force
 
 FROM node:20-alpine
