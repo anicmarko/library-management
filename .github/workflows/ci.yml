@@ -152,6 +152,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -385,12 +386,13 @@ jobs:
           elapsed=0
 
           until [ $elapsed -ge $timeout ]; do
-            # Count containers that are healthy OR running with no healthcheck defined
-            # Use || echo 0 so grep -c returns 0 (not exit code 1) when there are no matches
+            # Count containers that are healthy OR running with no healthcheck defined.
+            # Use || echo 0 so grep -c returns 0 (not exit code 1) when there are no matches.
+            # For no-healthcheck containers also require State:running to exclude restarting ones.
             HEALTHY=$(docker compose ps --format json 2>/dev/null \
               | grep -c '"Health":"healthy"' || echo 0)
             RUNNING_NO_HC=$(docker compose ps --format json 2>/dev/null \
-              | grep -c '"Health":""' || echo 0)
+              | grep '"Health":""' | grep -c '"State":"running"' || echo 0)
             READY=$((HEALTHY + RUNNING_NO_HC))
             echo "[$elapsed/${timeout}s] $READY/$TOTAL_SERVICES ready (healthy: $HEALTHY, no-hc: $RUNNING_NO_HC)"
             if [ "$READY" -ge "$TOTAL_SERVICES" ]; then
