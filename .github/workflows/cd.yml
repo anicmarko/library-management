@@ -5,6 +5,12 @@ on:
     workflows: ["CI Pipeline"]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      services:
+        description: 'Services to deploy: all | book-service,loan-service,...'
+        required: true
+        default: 'all'
 
 concurrency:
   group: cd-${{ github.ref }}
@@ -16,10 +22,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 1
     if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
     steps:
-      - run: echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
+      - run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — skipping CI check"
+          else
+            echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
+          fi
 
   load-outputs:
     name: Load CI Change Detection Outputs
@@ -39,6 +52,7 @@ jobs:
       build-all: ${{ steps.parse.outputs.build-all }}
     steps:
       - name: Download change detection outputs from CI
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: detect-changes-outputs
@@ -47,10 +61,27 @@ jobs:
 
       - name: Parse outputs
         id: parse
+        env:
+          INPUT_SERVICES: ${{ github.event.inputs.services }}
         run: |
-          while IFS='=' read -r key value; do
-            echo "${key}=${value}" >> $GITHUB_OUTPUT
-          done < detect-changes.env
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual run: mark requested services (or all) as changed
+            for svc in book-service loan-service user-service notification-service; do
+              if [ "$INPUT_SERVICES" = "all" ] || echo ",$INPUT_SERVICES," | grep -q ",$svc,"; then
+                echo "${svc}=true" >> $GITHUB_OUTPUT
+              else
+                echo "${svc}=false" >> $GITHUB_OUTPUT
+              fi
+            done
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            echo "build-all=false" >> $GITHUB_OUTPUT
+            echo "shared=false" >> $GITHUB_OUTPUT
+            echo "ci=false" >> $GITHUB_OUTPUT
+          else
+            while IFS='=' read -r key value; do
+              echo "${key}=${value}" >> $GITHUB_OUTPUT
+            done < detect-changes.env
+          fi
 
   deploy:
     name: Deploy (${{ matrix.service }})
