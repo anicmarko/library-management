@@ -19,101 +19,45 @@ jobs:
     steps:
       - run: echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
 
-  detect-changes:
-    name: Detect Changed Services
+  load-outputs:
+    name: Load CI Change Detection Outputs
     needs: [ci-status-check]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: read
+      actions: read
     outputs:
-      book-service: ${{ steps.filter.outputs.book-service }}
-      loan-service: ${{ steps.filter.outputs.loan-service }}
-      user-service: ${{ steps.filter.outputs.user-service }}
-      notification-service: ${{ steps.filter.outputs.notification-service }}
-      shared: ${{ steps.filter.outputs.shared }}
-      ci: ${{ steps.filter.outputs.ci }}
-      has-changes: ${{ steps.set-flag.outputs.has-changes }}
-      build-all: ${{ steps.set-build-all.outputs.build-all }}
+      book-service: ${{ steps.parse.outputs.book-service }}
+      loan-service: ${{ steps.parse.outputs.loan-service }}
+      user-service: ${{ steps.parse.outputs.user-service }}
+      notification-service: ${{ steps.parse.outputs.notification-service }}
+      shared: ${{ steps.parse.outputs.shared }}
+      ci: ${{ steps.parse.outputs.ci }}
+      has-changes: ${{ steps.parse.outputs.has-changes }}
+      build-all: ${{ steps.parse.outputs.build-all }}
     steps:
-      - name: Checkout base branch for path diffing
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Download change detection outputs from CI
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          ref: refs/heads/main
-          fetch-depth: 2
+          name: detect-changes-outputs
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check for path changes
-        id: filter
-        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
-        with:
-          base: HEAD^1
-          filters: |
-            root:
-              - 'package.json'
-              - 'package-lock.json'
-              - '.eslintrc.json'
-              - '.prettierrc.json'
-              - 'jest.config.js'
-              - 'tsconfig.json'
-            book-service:
-              - 'services/book-service/**'
-            loan-service:
-              - 'services/loan-service/**'
-            user-service:
-              - 'services/user-service/**'
-            notification-service:
-              - 'services/notification-service/**'
-            shared:
-              - 'services/shared/**'
-            ci:
-              - '.github/**'
-              - '**/Dockerfile'
-              - 'docker-compose*.y*ml'
-              - 'nginx.conf'
-
-      - name: Set build-all flag
-        id: set-build-all
-        env:
-          FILTER_ROOT: ${{ steps.filter.outputs.root }}
+      - name: Parse outputs
+        id: parse
         run: |
-          if [ "$FILTER_ROOT" == "true" ]; then
-            echo "build-all=true" >> $GITHUB_OUTPUT
-            echo "🔄 Root config changed - building all services"
-          else
-            echo "build-all=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Set has-changes flag
-        id: set-flag
-        env:
-          BUILD_ALL: ${{ steps.set-build-all.outputs.build-all }}
-          BOOK: ${{ steps.filter.outputs.book-service }}
-          LOAN: ${{ steps.filter.outputs.loan-service }}
-          USER: ${{ steps.filter.outputs.user-service }}
-          NOTIF: ${{ steps.filter.outputs.notification-service }}
-          SHARED: ${{ steps.filter.outputs.shared }}
-          CI_CHANGED: ${{ steps.filter.outputs.ci }}
-        run: |
-          if [ "$BUILD_ALL" == "true" ] || \
-             [ "$BOOK" == "true" ] || \
-             [ "$LOAN" == "true" ] || \
-             [ "$USER" == "true" ] || \
-             [ "$NOTIF" == "true" ] || \
-             [ "$SHARED" == "true" ] || \
-             [ "$CI_CHANGED" == "true" ]; then
-            echo "has-changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "has-changes=false" >> $GITHUB_OUTPUT
-          fi
+          while IFS='=' read -r key value; do
+            echo "${key}=${value}" >> $GITHUB_OUTPUT
+          done < detect-changes.env
 
   build-push:
     name: Build & Push (${{ matrix.service }})
-    needs: [detect-changes]
+    needs: [load-outputs]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
-    if: needs.detect-changes.outputs.has-changes == 'true'
+    if: needs.load-outputs.outputs.has-changes == 'true'
     strategy:
       matrix:
         include:
@@ -131,13 +75,13 @@ jobs:
         id: check_service
         env:
           MATRIX_SERVICE: ${{ matrix.service }}
-          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
-          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
-          SHARED: ${{ needs.detect-changes.outputs.shared }}
-          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
-          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
-          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
-          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
+          BUILD_ALL: ${{ needs.load-outputs.outputs.build-all }}
+          CI_CHANGED: ${{ needs.load-outputs.outputs.ci }}
+          SHARED: ${{ needs.load-outputs.outputs.shared }}
+          CHG_BOOK: ${{ needs.load-outputs.outputs.book-service }}
+          CHG_LOAN: ${{ needs.load-outputs.outputs.loan-service }}
+          CHG_USER: ${{ needs.load-outputs.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.load-outputs.outputs.notification-service }}
         run: |
           case "$MATRIX_SERVICE" in
             book-service)         CHANGED="$CHG_BOOK" ;;
@@ -188,12 +132,12 @@ jobs:
 
   deploy:
     name: Deploy (${{ matrix.service }})
-    needs: [build-push, detect-changes]
+    needs: [build-push, load-outputs]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-    if: needs.detect-changes.outputs.has-changes == 'true'
+    if: needs.load-outputs.outputs.has-changes == 'true'
     strategy:
       matrix:
         service: [book-service, loan-service, user-service, notification-service]
@@ -203,13 +147,13 @@ jobs:
         id: check_service
         env:
           MATRIX_SERVICE: ${{ matrix.service }}
-          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
-          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
-          SHARED: ${{ needs.detect-changes.outputs.shared }}
-          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
-          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
-          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
-          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
+          BUILD_ALL: ${{ needs.load-outputs.outputs.build-all }}
+          CI_CHANGED: ${{ needs.load-outputs.outputs.ci }}
+          SHARED: ${{ needs.load-outputs.outputs.shared }}
+          CHG_BOOK: ${{ needs.load-outputs.outputs.book-service }}
+          CHG_LOAN: ${{ needs.load-outputs.outputs.loan-service }}
+          CHG_USER: ${{ needs.load-outputs.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.load-outputs.outputs.notification-service }}
         run: |
           case "$MATRIX_SERVICE" in
             book-service)         CHANGED="$CHG_BOOK" ;;
