@@ -89,9 +89,11 @@ jobs:
 
       - name: Set has-changes flag
         id: set-flag
+        env:
+          GH_BEFORE: ${{ github.event.before }}
         run: |
           IS_NEW_BRANCH=false
-          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
+          if [ "$GH_BEFORE" == "0000000000000000000000000000000000000000" ]; then
             IS_NEW_BRANCH=true
             echo "🆕 New branch detected - running all services"
           fi
@@ -158,6 +160,10 @@ jobs:
     steps:
       - name: Check if service changed
         id: check_service
+        env:
+          GH_REF: ${{ github.ref }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_BASE_REF: ${{ github.base_ref }}
         run: |
           BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
           IS_NEW_BRANCH="${{ needs.detect-changes.outputs.is-new-branch }}"
@@ -174,10 +180,10 @@ jobs:
           SHARED="${{ needs.detect-changes.outputs.shared }}" # shared change triggers all services to re-test
 
           IS_DEV_OR_MAIN=false
-          if [ "${{ github.ref }}" == "refs/heads/dev" ] || \
-             [ "${{ github.ref }}" == "refs/heads/main" ] || \
-             ( [ "${{ github.event_name }}" == "pull_request" ] && \
-               ( [ "${{ github.base_ref }}" == "dev" ] || [ "${{ github.base_ref }}" == "main" ] ) ); then
+          if [ "$GH_REF" == "refs/heads/dev" ] || \
+             [ "$GH_REF" == "refs/heads/main" ] || \
+             ( [ "$GH_EVENT_NAME" == "pull_request" ] && \
+               ( [ "$GH_BASE_REF" == "dev" ] || [ "$GH_BASE_REF" == "main" ] ) ); then
             IS_DEV_OR_MAIN=true
           fi
 
