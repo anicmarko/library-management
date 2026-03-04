@@ -64,6 +64,7 @@ jobs:
       matrix:
         service: [book-service, loan-service, user-service, notification-service]
       fail-fast: false
+      max-parallel: 1
     steps:
       - name: Check if service should deploy
         id: check_service
