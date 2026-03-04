@@ -1,8 +1,10 @@
 'use strict';
 
-const { createEventStream, handleEvent } = require('../../src/messaging/reactiveSubscriber');
+const { createEventStream, handleEvent, startReactiveSubscribing } = require('../../src/messaging/reactiveSubscriber');
 
 const mockBook = { available: true, save: jest.fn().mockResolvedValue() };
+
+jest.mock('amqplib');
 
 jest.mock('../../src/models/bookModel', () => ({
   findById: jest.fn(),
@@ -173,5 +175,79 @@ describe('handleEvent via stream (loan.created)', () => {
       expect(Book.findById).not.toHaveBeenCalled();
       done();
     });
+  });
+});
+
+
+describe('startReactiveSubscribing', () => {
+  let amqp;
+  let mockChannel;
+  let mockConnection;
+
+  beforeEach(() => {
+    amqp = require('amqplib');
+    mockChannel = {
+      assertExchange: jest.fn().mockResolvedValue({}),
+      assertQueue:    jest.fn().mockResolvedValue({}),
+      bindQueue:      jest.fn().mockResolvedValue({}),
+      consume:        jest.fn(),
+      ack:            jest.fn(),
+      cancel:         jest.fn().mockResolvedValue({}),
+    };
+    mockConnection = {
+      createChannel: jest.fn().mockResolvedValue(mockChannel),
+      on: jest.fn(),
+    };
+    amqp.connect.mockResolvedValue(mockConnection);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.useRealTimers();
+  });
+
+  test('connects and sets up exchange, queue and bindings', async () => {
+    const sub = await startReactiveSubscribing();
+
+    expect(amqp.connect).toHaveBeenCalled();
+    expect(mockChannel.assertExchange).toHaveBeenCalledWith('library.events', 'topic', { durable: true });
+    expect(mockChannel.assertQueue).toHaveBeenCalledWith('book-service-reactive-queue', { durable: true });
+    expect(mockChannel.bindQueue).toHaveBeenCalledWith('book-service-reactive-queue', 'library.events', 'loan.created');
+    expect(mockChannel.bindQueue).toHaveBeenCalledWith('book-service-reactive-queue', 'library.events', 'loan.returned');
+
+    if (sub) sub.unsubscribe();
+  });
+
+  test('registers connection close handler', async () => {
+    const sub = await startReactiveSubscribing();
+
+    expect(mockConnection.on).toHaveBeenCalledWith('close', expect.any(Function));
+
+    if (sub) sub.unsubscribe();
+  });
+
+  test('schedules reconnect when connection closes', async () => {
+    jest.useFakeTimers();
+    const sub = await startReactiveSubscribing();
+
+    const closeHandler = mockConnection.on.mock.calls.find(c => c[0] === 'close')[1];
+    if (sub) sub.unsubscribe();
+    closeHandler();
+
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
+  });
+
+  test('schedules reconnect and logs on connect failure', async () => {
+    jest.useFakeTimers();
+    const logger = require('../../src/utils/logger');
+    amqp.connect.mockRejectedValueOnce(new Error('connection refused'));
+
+    await startReactiveSubscribing();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to start'),
+      expect.any(Object)
+    );
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
   });
 });
