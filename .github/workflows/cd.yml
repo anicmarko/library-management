@@ -11,23 +11,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ci-status-check:
-    name: Check CI conclusion
-    runs-on: ubuntu-latest
-    timeout-minutes: 1
-    if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
-    steps:
-      - run: echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
-
   load-outputs:
     name: Load CI Change Detection Outputs
-    needs: [ci-status-check]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     outputs:
       book-service: ${{ steps.parse.outputs.book-service }}
       loan-service: ${{ steps.parse.outputs.loan-service }}
@@ -54,11 +46,11 @@ jobs:
             echo "${key}=${value}" >> $GITHUB_OUTPUT
           done < detect-changes.env
 
-  sync-compose-files:
-    name: Sync Compose Files to VM
+  deploy:
+    name: Deploy all services
     needs: [load-outputs]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     if: needs.load-outputs.outputs.has-changes == 'true'
     steps:
       - name: Download compose files from CI artifact
@@ -69,29 +61,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
 
-      - name: Copy compose files to VM
-        env:
-          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_USER: ${{ secrets.VM_USER }}
-        run: |
-          KEY_FILE=$(mktemp)
-          trap 'rm -f "$KEY_FILE"' EXIT
-          printf '%s' "$SSH_KEY" > "$KEY_FILE"
-          chmod 600 "$KEY_FILE"
-          HOST="${VM_HOST//$'\n'/}"
-          scp -i "$KEY_FILE" -o StrictHostKeyChecking=no \
-            docker-compose.yaml docker-compose.prod.yml nginx.conf \
-            "${VM_USER}@${HOST}:~/app/"
-
-  deploy:
-    name: Deploy all services
-    needs: [load-outputs, sync-compose-files]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: needs.load-outputs.outputs.has-changes == 'true'
-    steps:
-      - name: Write .env file on runner
+      - name: Write .env file
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
@@ -105,24 +75,10 @@ jobs:
           printf 'NODE_ENV=production\nPOSTGRES_PASSWORD=%s\nMYSQL_ROOT_PASSWORD=%s\nMYSQL_PASSWORD=%s\nMONGO_ROOT_PASSWORD=%s\nMONGODB_URI=%s\nDATABASE_URL=%s\nACR_LOGIN_SERVER=%s\nLOG_LEVEL=%s\n' \
             "$POSTGRES_PASSWORD" "$MYSQL_ROOT_PASSWORD" "$MYSQL_PASSWORD" \
             "$MONGO_ROOT_PASSWORD" "$MONGODB_URI" "$DATABASE_URL" \
-            "$ACR_LOGIN_SERVER" "$LOG_LEVEL" > /tmp/app.env
-          chmod 600 /tmp/app.env
+            "$ACR_LOGIN_SERVER" "$LOG_LEVEL" > .env
+          chmod 600 .env
 
-      - name: Copy .env to VM
-        env:
-          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_USER: ${{ secrets.VM_USER }}
-        run: |
-          KEY_FILE=$(mktemp)
-          trap 'rm -f "$KEY_FILE"' EXIT
-          printf '%s' "$SSH_KEY" > "$KEY_FILE"
-          chmod 600 "$KEY_FILE"
-          HOST="${VM_HOST//$'\n'/}"
-          scp -i "$KEY_FILE" -o StrictHostKeyChecking=no \
-            /tmp/app.env "${VM_USER}@${HOST}:~/app/.env"
-
-      - name: Deploy via SSH
+      - name: Copy files to VM and deploy
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           VM_HOST: ${{ secrets.VM_HOST }}
@@ -136,6 +92,10 @@ jobs:
           printf '%s' "$SSH_KEY" > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
           HOST="${VM_HOST//$'\n'/}"
+
+          scp -i "$KEY_FILE" -o StrictHostKeyChecking=no \
+            docker-compose.yaml docker-compose.prod.yml nginx.conf .env \
+            "${VM_USER}@${HOST}:~/app/"
 
           ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no "${VM_USER}@${HOST}" << REMOTE
             set -e
