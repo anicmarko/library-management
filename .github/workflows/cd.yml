@@ -15,8 +15,6 @@ jobs:
     name: Check CI conclusion
     runs-on: ubuntu-latest
     timeout-minutes: 1
-    # Guard 1: CI must have passed
-    # Guard 2: only deploy code from this repo — never from a fork
     if: |
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository
@@ -97,7 +95,7 @@ jobs:
 
       - name: Deploy via SSH
         if: steps.check_service.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@029f5b4d67adf17cc0cf6f69b49fd7b62b0c3d76 # v1.0.3
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
