@@ -106,7 +106,10 @@ app.get('/books/:id', async (req, res) => {
 
 app.post('/books', async (req, res) => {
   try {
-    const { title, author, isbn, available } = req.body;
+    const { available } = req.body;
+    const title = req.body.title?.toString();
+    const author = req.body.author?.toString();
+    const isbn = req.body.isbn?.toString();
 
     if (!title || !author || !isbn) {
       const details = {};
@@ -180,7 +183,10 @@ app.post('/books', async (req, res) => {
 
 app.put('/books/:id', async (req, res) => {
   try {
-    const { title, author, isbn, available } = req.body;
+    const { available } = req.body;
+    const title = req.body.title?.toString();
+    const author = req.body.author?.toString();
+    const isbn = req.body.isbn?.toString();
 
     const book = await Book.findById(req.params.id);
 

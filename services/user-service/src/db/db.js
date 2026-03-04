@@ -12,7 +12,7 @@ let isConnected = false;
 function createSequelizeInstance() {
   const config = {
     host: process.env.MYSQL_HOST || 'localhost',
-    port: parseInt(process.env.MYSQL_PORT || '3306', 10),
+    port: Number.parseInt(process.env.MYSQL_PORT || '3306', 10),
     dialect: 'mysql',
     logging: (msg) => logger.debug(msg),
     pool: {

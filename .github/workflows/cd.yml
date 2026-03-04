@@ -101,6 +101,7 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            echo "${{ secrets.ACR_PASSWORD }}" | docker login "${{ secrets.ACR_LOGIN_SERVER }}" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
             cd ~/app
             {
               echo "NODE_ENV=production"
