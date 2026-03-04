@@ -11,22 +11,22 @@ COPY services/book-service/src ./src
 
 FROM node:20-alpine AS production
 
-WORKDIR /workspace/service
+ENV NODE_ENV=production
 
 RUN apk add --no-cache dumb-init
 
-COPY services/shared/ /workspace/shared/
-COPY services/book-service/package*.json ./
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /workspace/service
+
+COPY --chown=nodejs:nodejs services/shared/ /workspace/shared/
+COPY --chown=nodejs:nodejs services/book-service/package*.json ./
 
 RUN npm install --omit=dev --ignore-scripts && \
-    npm cache clean --force && \
-    chmod -R a-w node_modules
+    npm cache clean --force
 
-COPY --from=builder --chmod=555 /workspace/service/src ./src
-
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /workspace
+COPY --from=builder --chmod=755 --chown=nodejs:nodejs /workspace/service/src ./src
 
 USER nodejs
 

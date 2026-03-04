@@ -1,24 +1,37 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache python3 make g++
 
 WORKDIR /workspace/service
-
-# Create the data directory for SQLite
-RUN mkdir -p /workspace/service/data
 
 COPY services/shared/ /workspace/shared/
 COPY services/notification-service/package*.json ./
 
-RUN npm install --omit=dev --ignore-scripts && \
-    npm cache clean --force && \
-    chmod -R a-w node_modules
+RUN cd /workspace/shared && npm install --omit=dev && \
+    cd /workspace/service && npm install --omit=dev && \
+    npm cache clean --force
 
-COPY --chmod=555 services/notification-service/src ./src
+FROM node:20-alpine
+
+ENV NODE_ENV=production
+
+RUN apk add --no-cache dumb-init
 
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /workspace
+    adduser -S nodejs -u 1001
+
+WORKDIR /workspace/service
+
+RUN mkdir -p /workspace/service/data && \
+    chown nodejs:nodejs /workspace/service/data
+
+COPY --chown=nodejs:nodejs services/shared/ /workspace/shared/
+COPY --from=builder --chmod=755 --chown=nodejs:nodejs /workspace/shared/node_modules /workspace/shared/node_modules
+
+COPY --chown=nodejs:nodejs services/notification-service/package*.json ./
+COPY --from=builder --chmod=755 --chown=nodejs:nodejs /workspace/service/node_modules ./node_modules
+
+COPY --chmod=755 --chown=nodejs:nodejs services/notification-service/src ./src
 
 USER nodejs
 
