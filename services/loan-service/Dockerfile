@@ -13,7 +13,7 @@ FROM node:20-alpine AS production
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache dumb-init && \
+RUN apk add --no-cache dumb-init \
     addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
