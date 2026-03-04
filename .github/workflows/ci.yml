@@ -133,6 +133,27 @@ jobs:
             echo "has-changes=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Save change detection outputs
+        run: |
+          {
+            echo "book-service=${{ steps.filter.outputs.book-service }}"
+            echo "loan-service=${{ steps.filter.outputs.loan-service }}"
+            echo "user-service=${{ steps.filter.outputs.user-service }}"
+            echo "notification-service=${{ steps.filter.outputs.notification-service }}"
+            echo "shared=${{ steps.filter.outputs.shared }}"
+            echo "ci=${{ steps.filter.outputs.ci }}"
+            echo "has-changes=${{ steps.set-flag.outputs.has-changes }}"
+            echo "build-all=${{ steps.set-build-all.outputs.build-all }}"
+            echo "is-new-branch=${{ steps.set-flag.outputs.is-new-branch }}"
+          } > /tmp/detect-changes.env
+
+      - name: Upload change detection outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: detect-changes-outputs
+          path: /tmp/detect-changes.env
+          retention-days: 1
+
   lint:
     name: Lint Code
     needs: [detect-changes]
