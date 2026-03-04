@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY --chmod=755 package*.json ./
-RUN npm install
+RUN npm install --ignore-scripts
 
 COPY --chmod=755 src ./src
 
@@ -14,7 +14,6 @@ ENV NODE_ENV=production
 
 RUN apk add --no-cache dumb-init
 
-# Create user early so --chown on COPY instructions works; no slow chown -R needed
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 

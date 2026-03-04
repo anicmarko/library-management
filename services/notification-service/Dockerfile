@@ -7,8 +7,10 @@ WORKDIR /workspace/service
 COPY --chmod=755 services/shared/ /workspace/shared/
 COPY --chmod=755 services/notification-service/package*.json ./
 
-RUN cd /workspace/shared && npm install --omit=dev && \
-    cd /workspace/service && npm install --omit=dev && \
+RUN cd /workspace/shared && npm install --omit=dev --ignore-scripts && \
+    npm cache clean --force
+
+RUN cd /workspace/service && npm install --omit=dev && \
     npm cache clean --force
 
 FROM node:20-alpine
