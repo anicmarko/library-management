@@ -1,6 +1,7 @@
 require('./tracing');
 require('dotenv').config();
 const express = require('express');
+const { startGrpcServer } = require('./grpc/server');
 const { trace } = require('@opentelemetry/api');
 const logger = require('./utils/logger');
 const { requestLogger } = require('./utils/logger');
@@ -332,12 +333,19 @@ const startServer = async () => {
     await subscriber.startSubscribing();
     logger.info('RabbitMQ subscriber started');
 
+    const grpcServer = startGrpcServer();
+
     const server = app.listen(PORT, () => {
       logger.info(`Book service running on port ${PORT}`);
     });
 
     const gracefulShutdown = async (signal) => {
       logger.info(`${signal} received, shutting down gracefully`);
+
+      grpcServer.tryShutdown((grpcErr) => {
+        if (grpcErr) logger.error('gRPC shutdown error', { error: grpcErr.message });
+        else logger.info('gRPC server closed');
+      });
       
       server.close(async () => {
         logger.info('HTTP server closed');
