@@ -270,7 +270,8 @@ jobs:
     if: |
       needs.detect-changes.outputs.has-changes == 'true' &&
       (github.ref == 'refs/heads/main' ||
-       (github.event_name == 'pull_request' && github.base_ref == 'main'))
+       github.ref == 'refs/heads/dev' ||
+       (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev')))
     strategy:
       matrix:
         service: [book-service, loan-service, user-service, notification-service]
@@ -460,4 +461,3 @@ jobs:
             -Dsonar.projectKey=anicmarko_library-management
             -Dsonar.organization=${{ github.repository_owner }}
             -Dsonar.javascript.lcov.reportPaths=coverage/**/lcov.info
-        continue-on-error: true
