@@ -23,15 +23,13 @@ concurrency:
 env:
   NODE_VERSION: '20'
 
-# Default to minimal read-only permissions; jobs that need more declare their own permissions block
-permissions:
-  contents: read
-
 jobs:
   detect-changes:
     name: Detect Changed Services
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       book-service: ${{ steps.filter.outputs.book-service }}
       loan-service: ${{ steps.filter.outputs.loan-service }}
@@ -142,6 +140,8 @@ jobs:
     needs: [detect-changes]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     if: needs.detect-changes.outputs.has-changes == 'true'
     steps:
       - name: Checkout code
@@ -264,6 +264,8 @@ jobs:
     needs: [unit-tests, detect-changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     if: |
       needs.detect-changes.outputs.has-changes == 'true' &&
       (github.ref == 'refs/heads/main' ||
@@ -322,6 +324,8 @@ jobs:
     name: End-to-End Tests
     needs: [unit-tests, detect-changes]
     timeout-minutes: 30
+    permissions:
+      contents: read
     if: |
       needs.detect-changes.outputs.has-changes == 'true' &&
       (github.ref == 'refs/heads/main' ||
@@ -414,6 +418,8 @@ jobs:
     needs: [unit-tests, detect-changes]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     if: |
       needs.detect-changes.outputs.has-changes == 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
