@@ -22,21 +22,17 @@ const mockServerInstance = {
   tryShutdown: jest.fn((cb) => cb && cb()),
 };
 
-jest.mock('@grpc/grpc-js', () => {
-  const grpc = jest.requireActual('@grpc/grpc-js');
-  return {
-    ...grpc,
-    Server: jest.fn(() => mockServerInstance),
-    loadPackageDefinition: jest.fn(() => ({
-      books: {
-        BookService: { service: {} },
-      },
-    })),
-    ServerCredentials: {
-      createInsecure: jest.fn(() => ({})),
+jest.mock('@grpc/grpc-js', () => ({
+  Server: jest.fn(() => mockServerInstance),
+  loadPackageDefinition: jest.fn(() => ({
+    books: {
+      BookService: { service: {} },
     },
-  };
-});
+  })),
+  ServerCredentials: {
+    createInsecure: jest.fn(() => ({})),
+  },
+}));
 
 jest.mock('../../src/models/bookModel', () => ({
   findById: jest.fn(),

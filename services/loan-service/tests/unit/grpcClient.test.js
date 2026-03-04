@@ -14,18 +14,14 @@ jest.mock('@grpc/proto-loader', () => ({
 const mockCheckAvailability = jest.fn();
 const mockClientInstance = { CheckAvailability: mockCheckAvailability };
 
-jest.mock('@grpc/grpc-js', () => {
-  const grpc = jest.requireActual('@grpc/grpc-js');
-  return {
-    ...grpc,
-    loadPackageDefinition: jest.fn(() => ({
-      books: {
-        BookService: jest.fn(() => mockClientInstance),
-      },
-    })),
-    credentials: { createInsecure: jest.fn(() => ({})) },
-  };
-});
+jest.mock('@grpc/grpc-js', () => ({
+  loadPackageDefinition: jest.fn(() => ({
+    books: {
+      BookService: jest.fn(() => mockClientInstance),
+    },
+  })),
+  credentials: { createInsecure: jest.fn(() => ({})) },
+}));
 
 const { checkBookAvailability } = require('../../src/grpc/client');
 
