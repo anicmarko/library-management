@@ -164,7 +164,19 @@ jobs:
             shared)               CHANGED="${{ needs.detect-changes.outputs.shared }}" ;;
           esac
 
-          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CHANGED" == "true" ]; then
+          CI_CHANGED="${{ needs.detect-changes.outputs.ci }}"
+
+          IS_DEV_OR_MAIN=false
+          if [ "${{ github.ref }}" == "refs/heads/dev" ] || \
+             [ "${{ github.ref }}" == "refs/heads/main" ] || \
+             ( [ "${{ github.event_name }}" == "pull_request" ] && \
+               ( [ "${{ github.base_ref }}" == "dev" ] || [ "${{ github.base_ref }}" == "main" ] ) ); then
+            IS_DEV_OR_MAIN=true
+          fi
+
+          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ] || [ "$CHANGED" == "true" ] || \
+             [ "$IS_DEV_OR_MAIN" == "true" ]; then
             echo "run=true" >> $GITHUB_OUTPUT
             echo "✅ ${{ matrix.service }} - running tests"
           else
