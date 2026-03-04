@@ -2,12 +2,13 @@
   "name": "@library/shared",
   "version": "1.0.0",
   "description": "Shared utilities for library microservices",
-  "main": "src/createEventStream.js",
+  "main": "src/index.js",
   "private": true,
   "scripts": {
     "test": "jest --coverage"
   },
   "dependencies": {
+    "amqplib": "^0.10.3",
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
