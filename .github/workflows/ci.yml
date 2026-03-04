@@ -172,7 +172,7 @@ jobs:
       actions: read
     strategy:
       matrix:
-        service: [book-service, loan-service, user-service, notification-service]
+        service: [book-service, loan-service, user-service, notification-service, shared]
       fail-fast: false # allow other matrix jobs to finish even if one fails
     steps:
       - name: Check if service changed
@@ -197,6 +197,7 @@ jobs:
             loan-service)         CHANGED="$CHG_LOAN" ;;
             user-service)         CHANGED="$CHG_USER" ;;
             notification-service) CHANGED="$CHG_NOTIF" ;;
+            shared)               CHANGED="$SHARED" ;;
           esac
 
           # shared change triggers all services to re-test
