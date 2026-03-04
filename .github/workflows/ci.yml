@@ -5,6 +5,10 @@ on:
     branches:
       - main
       - dev
+      - 'feat/**'
+      - 'fix/**'
+      - 'chore/**'
+      - 'refactor/**'
     paths-ignore:
       - '**.md'
       - '.gitignore'
