@@ -84,53 +84,13 @@ jobs:
             "${VM_USER}@${HOST}:~/app/"
 
   deploy:
-    name: Deploy (${{ matrix.service }})
+    name: Deploy all services
     needs: [load-outputs, sync-compose-files]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: read
     if: needs.load-outputs.outputs.has-changes == 'true'
-    strategy:
-      matrix:
-        service: [book-service, loan-service, user-service, notification-service]
-      fail-fast: false
-      max-parallel: 1
     steps:
-      - name: Check if service should deploy
-        id: check_service
-        env:
-          MATRIX_SERVICE: ${{ matrix.service }}
-          BUILD_ALL: ${{ needs.load-outputs.outputs.build-all }}
-          IS_NEW_BRANCH: ${{ needs.load-outputs.outputs.is-new-branch }}
-          CI_CHANGED: ${{ needs.load-outputs.outputs.ci }}
-          SHARED: ${{ needs.load-outputs.outputs.shared }}
-          CHG_BOOK: ${{ needs.load-outputs.outputs.book-service }}
-          CHG_LOAN: ${{ needs.load-outputs.outputs.loan-service }}
-          CHG_USER: ${{ needs.load-outputs.outputs.user-service }}
-          CHG_NOTIF: ${{ needs.load-outputs.outputs.notification-service }}
-        run: |
-          case "$MATRIX_SERVICE" in
-            book-service)         CHANGED="$CHG_BOOK" ;;
-            loan-service)         CHANGED="$CHG_LOAN" ;;
-            user-service)         CHANGED="$CHG_USER" ;;
-            notification-service) CHANGED="$CHG_NOTIF" ;;
-          esac
-
-          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || \
-             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
-            echo "deploy=true" >> $GITHUB_OUTPUT
-            echo "✅ $MATRIX_SERVICE - deploying"
-          else
-            echo "deploy=false" >> $GITHUB_OUTPUT
-            echo "⏭️  $MATRIX_SERVICE not changed - skipping deploy"
-          fi
-
-      # Secrets with special characters will break an inline SSH script.
-      # Instead, we write an env file on the runner and SCP it to the VM
-      # before the SSH step — no heredoc, no interpolation issues.
       - name: Write .env file on runner
-        if: steps.check_service.outputs.deploy == 'true'
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
@@ -141,21 +101,13 @@ jobs:
           ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
         run: |
-          cat > /tmp/app.env <<EOF
-          NODE_ENV=production
-          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-          MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-          MYSQL_PASSWORD=${MYSQL_PASSWORD}
-          MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-          MONGODB_URI=${MONGODB_URI}
-          DATABASE_URL=${DATABASE_URL}
-          ACR_LOGIN_SERVER=${ACR_LOGIN_SERVER}
-          LOG_LEVEL=${LOG_LEVEL}
-          EOF
+          printf 'NODE_ENV=production\nPOSTGRES_PASSWORD=%s\nMYSQL_ROOT_PASSWORD=%s\nMYSQL_PASSWORD=%s\nMONGO_ROOT_PASSWORD=%s\nMONGODB_URI=%s\nDATABASE_URL=%s\nACR_LOGIN_SERVER=%s\nLOG_LEVEL=%s\n' \
+            "$POSTGRES_PASSWORD" "$MYSQL_ROOT_PASSWORD" "$MYSQL_PASSWORD" \
+            "$MONGO_ROOT_PASSWORD" "$MONGODB_URI" "$DATABASE_URL" \
+            "$ACR_LOGIN_SERVER" "$LOG_LEVEL" > /tmp/app.env
           chmod 600 /tmp/app.env
 
       - name: Copy .env to VM
-        if: steps.check_service.outputs.deploy == 'true'
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           VM_HOST: ${{ secrets.VM_HOST }}
@@ -167,48 +119,29 @@ jobs:
           chmod 600 "$KEY_FILE"
           HOST="${VM_HOST//$'\n'/}"
           scp -i "$KEY_FILE" -o StrictHostKeyChecking=no \
-            /tmp/app.env "${VM_USER}@${HOST}:~/app/app.env"
+            /tmp/app.env "${VM_USER}@${HOST}:~/app/.env"
 
       - name: Deploy via SSH
-        if: steps.check_service.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
           ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
-          SERVICE: ${{ matrix.service }}
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: ACR_LOGIN_SERVER,ACR_USERNAME,ACR_PASSWORD,SERVICE
-          script: |
+        run: |
+          KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
+          printf '%s' "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          HOST="${VM_HOST//$'\n'/}"
+
+          ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no "${VM_USER}@${HOST}" << REMOTE
             set -e
-
             echo "$ACR_PASSWORD" | docker login "$ACR_LOGIN_SERVER" -u "$ACR_USERNAME" --password-stdin
-
             cd ~/app
-
-            # Atomically replace .env so no service reads a half-written file
-            mv app.env .env
-
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull "$SERVICE"
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yml up -d --no-deps --remove-orphans "$SERVICE"
-
-            # Health check — wait up to 60s
-            CONTAINER=$(docker compose -f docker-compose.yaml -f docker-compose.prod.yml ps -q "$SERVICE" | head -1)
-            echo "Waiting for $SERVICE to stabilise..."
-            for i in $(seq 1 12); do
-              STATUS=$(docker inspect --format='{{.State.Status}}' "$CONTAINER" 2>/dev/null || echo "missing")
-              HEALTH=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CONTAINER" 2>/dev/null || echo "missing")
-              if [ "$STATUS" == "running" ] && { [ "$HEALTH" == "healthy" ] || [ "$HEALTH" == "none" ]; }; then
-                echo "✅ $SERVICE is up (status=$STATUS, health=$HEALTH)"
-                exit 0
-              fi
-              echo "[$((i*5))s] status=$STATUS health=$HEALTH — waiting..."
-              sleep 5
-            done
-
-            echo "❌ $SERVICE did not become healthy in 60s"
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yml logs --tail=50 "$SERVICE"
-            exit 1
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
+            echo "✅ Deployment complete"
+          REMOTE
