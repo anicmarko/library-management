@@ -78,9 +78,11 @@ jobs:
 
       - name: Set build-all flag
         id: set-build-all
+        env:
+          FILTER_ROOT: ${{ steps.filter.outputs.root }}
         run: |
           # Only trigger build-all when shared root config files change
-          if [ "${{ steps.filter.outputs.root }}" == "true" ]; then
+          if [ "$FILTER_ROOT" == "true" ]; then
             echo "build-all=true" >> $GITHUB_OUTPUT
             echo "🔄 Root config changed - building all services"
           else
@@ -91,6 +93,13 @@ jobs:
         id: set-flag
         env:
           GH_BEFORE: ${{ github.event.before }}
+          BUILD_ALL: ${{ steps.set-build-all.outputs.build-all }}
+          BOOK: ${{ steps.filter.outputs.book-service }}
+          LOAN: ${{ steps.filter.outputs.loan-service }}
+          USER: ${{ steps.filter.outputs.user-service }}
+          NOTIF: ${{ steps.filter.outputs.notification-service }}
+          SHARED: ${{ steps.filter.outputs.shared }}
+          CI_CHANGED: ${{ steps.filter.outputs.ci }}
         run: |
           IS_NEW_BRANCH=false
           if [ "$GH_BEFORE" == "0000000000000000000000000000000000000000" ]; then
@@ -98,14 +107,6 @@ jobs:
             echo "🆕 New branch detected - running all services"
           fi
           echo "is-new-branch=$IS_NEW_BRANCH" >> $GITHUB_OUTPUT
-
-          BUILD_ALL="${{ steps.set-build-all.outputs.build-all }}"
-          BOOK="${{ steps.filter.outputs.book-service }}"
-          LOAN="${{ steps.filter.outputs.loan-service }}"
-          USER="${{ steps.filter.outputs.user-service }}"
-          NOTIF="${{ steps.filter.outputs.notification-service }}"
-          SHARED="${{ steps.filter.outputs.shared }}"
-          CI_CHANGED="${{ steps.filter.outputs.ci }}"
 
           if [ "$IS_NEW_BRANCH" == "true" ] || \
              [ "$BUILD_ALL" == "true" ] || \
@@ -164,21 +165,25 @@ jobs:
           GH_REF: ${{ github.ref }}
           GH_EVENT_NAME: ${{ github.event_name }}
           GH_BASE_REF: ${{ github.base_ref }}
+          MATRIX_SERVICE: ${{ matrix.service }}
+          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
+          IS_NEW_BRANCH: ${{ needs.detect-changes.outputs.is-new-branch }}
+          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
+          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
+          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
+          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
+          SHARED: ${{ needs.detect-changes.outputs.shared }}
         run: |
-          BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
-          IS_NEW_BRANCH="${{ needs.detect-changes.outputs.is-new-branch }}"
-
           # Map matrix.service to its individual detect-changes output
-          case "${{ matrix.service }}" in
-            book-service)         CHANGED="${{ needs.detect-changes.outputs.book-service }}" ;;
-            loan-service)         CHANGED="${{ needs.detect-changes.outputs.loan-service }}" ;;
-            user-service)         CHANGED="${{ needs.detect-changes.outputs.user-service }}" ;;
-            notification-service) CHANGED="${{ needs.detect-changes.outputs.notification-service }}" ;;
+          case "$MATRIX_SERVICE" in
+            book-service)         CHANGED="$CHG_BOOK" ;;
+            loan-service)         CHANGED="$CHG_LOAN" ;;
+            user-service)         CHANGED="$CHG_USER" ;;
+            notification-service) CHANGED="$CHG_NOTIF" ;;
           esac
 
-          CI_CHANGED="${{ needs.detect-changes.outputs.ci }}"
-          SHARED="${{ needs.detect-changes.outputs.shared }}" # shared change triggers all services to re-test
-
+          # shared change triggers all services to re-test
           IS_DEV_OR_MAIN=false
           if [ "$GH_REF" == "refs/heads/dev" ] || \
              [ "$GH_REF" == "refs/heads/main" ] || \
@@ -192,10 +197,10 @@ jobs:
              [ "$SHARED" == "true" ] || \
              [ "$IS_DEV_OR_MAIN" == "true" ]; then
             echo "run=true" >> $GITHUB_OUTPUT
-            echo "✅ ${{ matrix.service }} - running tests"
+            echo "✅ $MATRIX_SERVICE - running tests"
           else
             echo "run=false" >> $GITHUB_OUTPUT
-            echo "⏭️  ${{ matrix.service }} not changed - skipping"
+            echo "⏭️  $MATRIX_SERVICE not changed - skipping"
           fi
 
       - name: Checkout code
@@ -252,23 +257,28 @@ jobs:
     steps:
       - name: Check if service should build
         id: check_service
+        env:
+          MATRIX_SERVICE: ${{ matrix.service }}
+          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
+          SHARED: ${{ needs.detect-changes.outputs.shared }}
+          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
+          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
+          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
         run: |
-          BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
-          SHARED="${{ needs.detect-changes.outputs.shared }}"
-
-          case "${{ matrix.service }}" in
-            book-service)         CHANGED="${{ needs.detect-changes.outputs.book-service }}" ;;
-            loan-service)         CHANGED="${{ needs.detect-changes.outputs.loan-service }}" ;;
-            user-service)         CHANGED="${{ needs.detect-changes.outputs.user-service }}" ;;
-            notification-service) CHANGED="${{ needs.detect-changes.outputs.notification-service }}" ;;
+          case "$MATRIX_SERVICE" in
+            book-service)         CHANGED="$CHG_BOOK" ;;
+            loan-service)         CHANGED="$CHG_LOAN" ;;
+            user-service)         CHANGED="$CHG_USER" ;;
+            notification-service) CHANGED="$CHG_NOTIF" ;;
           esac
 
           if [ "$BUILD_ALL" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
-            echo "✅ ${{ matrix.service }} - building"
+            echo "✅ $MATRIX_SERVICE - building"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "⏭️  ${{ matrix.service }} not changed - skipping"
+            echo "⏭️  $MATRIX_SERVICE not changed - skipping"
           fi
 
       - name: Checkout code
