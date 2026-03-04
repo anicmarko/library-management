@@ -69,14 +69,19 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Copy compose files to VM
-        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "docker-compose.yaml,docker-compose.prod.yml,nginx.conf"
-          target: "~/app"
-          overwrite: true
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+        run: |
+          KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
+          printf '%s' "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          HOST="${VM_HOST//$'\n'/}"
+          scp -i "$KEY_FILE" -o StrictHostKeyChecking=no \
+            docker-compose.yaml docker-compose.prod.yml nginx.conf \
+            "${VM_USER}@${HOST}:~/app/"
 
   deploy:
     name: Deploy (${{ matrix.service }})
@@ -151,15 +156,18 @@ jobs:
 
       - name: Copy .env to VM
         if: steps.check_service.outputs.deploy == 'true'
-        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "/tmp/app.env"
-          target: "~/app"
-          overwrite: true
-          strip_components: 2  # drops /tmp/ prefix, lands as ~/app/app.env
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+        run: |
+          KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
+          printf '%s' "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          HOST="${VM_HOST//$'\n'/}"
+          scp -i "$KEY_FILE" -o StrictHostKeyChecking=no \
+            /tmp/app.env "${VM_USER}@${HOST}:~/app/app.env"
 
       - name: Deploy via SSH
         if: steps.check_service.outputs.deploy == 'true'
