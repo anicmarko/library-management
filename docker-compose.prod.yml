@@ -44,6 +44,7 @@ services:
         max-file: "3"
 
   book-service:
+    image: ${ACR_LOGIN_SERVER}/book-service:latest
     restart: always
     ports: []
     environment:
@@ -56,6 +57,7 @@ services:
         max-file: "3"
 
   loan-service:
+    image: ${ACR_LOGIN_SERVER}/loan-service:latest
     restart: always
     ports: []
     environment:
@@ -68,6 +70,7 @@ services:
         max-file: "3"
 
   user-service:
+    image: ${ACR_LOGIN_SERVER}/user-service:latest
     restart: always
     ports: []
     environment:
@@ -80,8 +83,9 @@ services:
         max-file: "3"
 
   notification-service:
+    image: ${ACR_LOGIN_SERVER}/notification-service:latest
     restart: always
-    ports: [] 
+    ports: []
     environment:
       NODE_ENV: production
     logging:
