@@ -5,15 +5,15 @@ module.exports = {
     'src/**/*.js',
     '!**/node_modules/**'
   ],
+  coverageReporters: ['text', 'lcov', 'clover', 'html'],
   coverageThreshold: {
     global: {
-      branches: 20,
-      functions: 20,
-      lines: 20,
-      statements: 20
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70
     }
   },
-  coverageReporters: ['text', 'lcov', 'clover', 'html'],
   testMatch: ['**/tests/**/*.test.js'],
   verbose: true,
   forceExit: true,
