@@ -280,7 +280,7 @@ jobs:
           retention-days: 1
 
   build:
-    name: Build Docker Images (${{ matrix.service }})
+    name: Build & Push Docker Images (${{ matrix.service }})
     needs: [unit-tests, detect-changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -341,14 +341,24 @@ jobs:
         if: steps.check_service.outputs.changed == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build Docker image (validation only — no push)
+      - name: Log in to Azure Container Registry
+        if: steps.check_service.outputs.changed == 'true' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        with:
+          registry: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push Docker image
         if: steps.check_service.outputs.changed == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: ${{ matrix.context }}
           file: ./services/${{ matrix.service }}/Dockerfile
-          push: false
-          tags: library-${{ matrix.service }}:ci
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

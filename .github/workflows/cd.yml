@@ -15,7 +15,11 @@ jobs:
     name: Check CI conclusion
     runs-on: ubuntu-latest
     timeout-minutes: 1
-    if: github.event.workflow_run.conclusion == 'success'
+    # Guard 1: CI must have passed
+    # Guard 2: only deploy code from this repo — never from a fork
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     steps:
       - run: echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
 
@@ -50,90 +54,9 @@ jobs:
             echo "${key}=${value}" >> $GITHUB_OUTPUT
           done < detect-changes.env
 
-  build-push:
-    name: Build & Push (${{ matrix.service }})
-    needs: [load-outputs]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    if: needs.load-outputs.outputs.has-changes == 'true'
-    strategy:
-      matrix:
-        include:
-          - service: book-service
-            context: .
-          - service: loan-service
-            context: ./services/loan-service
-          - service: user-service
-            context: ./services/user-service
-          - service: notification-service
-            context: .
-      fail-fast: false
-    steps:
-      - name: Check if service should build
-        id: check_service
-        env:
-          MATRIX_SERVICE: ${{ matrix.service }}
-          BUILD_ALL: ${{ needs.load-outputs.outputs.build-all }}
-          CI_CHANGED: ${{ needs.load-outputs.outputs.ci }}
-          SHARED: ${{ needs.load-outputs.outputs.shared }}
-          CHG_BOOK: ${{ needs.load-outputs.outputs.book-service }}
-          CHG_LOAN: ${{ needs.load-outputs.outputs.loan-service }}
-          CHG_USER: ${{ needs.load-outputs.outputs.user-service }}
-          CHG_NOTIF: ${{ needs.load-outputs.outputs.notification-service }}
-        run: |
-          case "$MATRIX_SERVICE" in
-            book-service)         CHANGED="$CHG_BOOK" ;;
-            loan-service)         CHANGED="$CHG_LOAN" ;;
-            user-service)         CHANGED="$CHG_USER" ;;
-            notification-service) CHANGED="$CHG_NOTIF" ;;
-          esac
-
-          if [ "$BUILD_ALL" == "true" ] || \
-             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "✅ $MATRIX_SERVICE - building"
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "⏭️  $MATRIX_SERVICE not changed - skipping"
-          fi
-
-      - name: Checkout base branch for build
-        if: steps.check_service.outputs.changed == 'true'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          persist-credentials: false
-
-      - name: Set up Docker Buildx
-        if: steps.check_service.outputs.changed == 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
-      - name: Log in to Azure Container Registry
-        if: steps.check_service.outputs.changed == 'true'
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
-        with:
-          registry: ${{ secrets.ACR_LOGIN_SERVER }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-
-      - name: Build and push Docker image
-        if: steps.check_service.outputs.changed == 'true'
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
-        with:
-          context: ${{ matrix.context }}
-          file: ./services/${{ matrix.service }}/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
-            ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.event.workflow_run.head_sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   deploy:
     name: Deploy (${{ matrix.service }})
-    needs: [build-push, load-outputs]
+    needs: [load-outputs]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
