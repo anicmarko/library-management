@@ -282,6 +282,8 @@ jobs:
         env:
           MATRIX_SERVICE: ${{ matrix.service }}
           BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
+          IS_NEW_BRANCH: ${{ needs.detect-changes.outputs.is-new-branch }}
+          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
           SHARED: ${{ needs.detect-changes.outputs.shared }}
           CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
           CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
@@ -295,7 +297,8 @@ jobs:
             notification-service) CHANGED="$CHG_NOTIF" ;;
           esac
 
-          if [ "$BUILD_ALL" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
+          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "✅ $MATRIX_SERVICE - building"
           else
@@ -374,10 +377,11 @@ jobs:
 
           until [ $elapsed -ge $timeout ]; do
             # Count containers that are healthy OR running with no healthcheck defined
+            # Use || echo 0 so grep -c returns 0 (not exit code 1) when there are no matches
             HEALTHY=$(docker compose ps --format json 2>/dev/null \
-              | grep -c '"Health":"healthy"' || true)
+              | grep -c '"Health":"healthy"' || echo 0)
             RUNNING_NO_HC=$(docker compose ps --format json 2>/dev/null \
-              | grep -c '"Health":""' || true)
+              | grep -c '"Health":""' || echo 0)
             READY=$((HEALTHY + RUNNING_NO_HC))
             echo "[$elapsed/${timeout}s] $READY/$TOTAL_SERVICES ready (healthy: $HEALTHY, no-hc: $RUNNING_NO_HC)"
             if [ "$READY" -ge "$TOTAL_SERVICES" ]; then
@@ -424,10 +428,10 @@ jobs:
       contents: read
     if: |
       needs.detect-changes.outputs.has-changes == 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-      (github.event_name == 'pull_request' || 
-       github.ref == 'refs/heads/main' || 
-       github.ref == 'refs/heads/dev')
+      (github.event_name == 'pull_request' ||
+       github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/dev') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
