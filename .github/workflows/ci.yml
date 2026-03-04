@@ -260,6 +260,7 @@ jobs:
         with:
           name: coverage-report-${{ matrix.service }}
           path: services/${{ matrix.service }}/coverage/
+          retention-days: 1 # only consumed by sonarcloud in the same run
 
   build:
     name: Build Docker Images (${{ matrix.service }})
@@ -356,6 +357,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Check if docker-compose exists
         id: check_compose
@@ -428,6 +430,7 @@ jobs:
         with:
           name: e2e-test-results
           path: test-results/
+          retention-days: 7
         continue-on-error: true
 
   sonarcloud:
