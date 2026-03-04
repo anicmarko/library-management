@@ -95,32 +95,25 @@ jobs:
           CHG_NOTIF: ${{ needs.load-outputs.outputs.notification-service }}
         run: |
           KEY_FILE=$(mktemp)
-          CONTROL_SOCKET=$(mktemp -u)
-          trap 'ssh -S "$CONTROL_SOCKET" -O exit placeholder 2>/dev/null; rm -f "$KEY_FILE"' EXIT
+          trap 'rm -f "$KEY_FILE"' EXIT
           printf '%s\n' "$SSH_KEY" > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
           HOST="${VM_HOST//$'\n'/}"
-          SSH_OPTS="-i $KEY_FILE -o StrictHostKeyChecking=no -o ControlMaster=auto -o ControlPath=$CONTROL_SOCKET -o ControlPersist=60"
 
-          # Open multiplexed connection once; SCP and SSH reuse it
-          ssh $SSH_OPTS "${VM_USER}@${HOST}" true
-
-          scp -i "$KEY_FILE" -o StrictHostKeyChecking=no -o ControlPath="$CONTROL_SOCKET" \
+          scp -i "$KEY_FILE" -o StrictHostKeyChecking=no \
             docker-compose.yaml docker-compose.prod.yml nginx.conf .env \
             "${VM_USER}@${HOST}:~/app/"
 
           # Build selective pull list — only pull images that actually changed
           SERVICES=""
-          if [ "$BUILD_ALL" == "true" ] || [ "$IS_NEW_BRANCH" == "true" ] || [ "$CI_CHANGED" == "true" ]; then
-            SERVICES=""  # empty = pull all
-          else
+          if [ "$BUILD_ALL" != "true" ] && [ "$IS_NEW_BRANCH" != "true" ] && [ "$CI_CHANGED" != "true" ]; then
             [ "$CHG_BOOK" == "true" ]  && SERVICES="$SERVICES book-service"
             [ "$CHG_LOAN" == "true" ]  && SERVICES="$SERVICES loan-service"
             [ "$CHG_USER" == "true" ]  && SERVICES="$SERVICES user-service"
             [ "$CHG_NOTIF" == "true" ] && SERVICES="$SERVICES notification-service"
           fi
 
-          ssh $SSH_OPTS "${VM_USER}@${HOST}" << REMOTE
+          ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no "${VM_USER}@${HOST}" bash -s << REMOTE
             set -e
             echo "$ACR_PASSWORD" | docker login "$ACR_LOGIN_SERVER" -u "$ACR_USERNAME" --password-stdin
             cd ~/app
