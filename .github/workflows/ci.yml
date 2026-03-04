@@ -46,12 +46,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Compute base ref
+        id: base-ref
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_BASE_REF: ${{ github.base_ref }}
+          GH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GH_EVENT_NAME" == "pull_request" ]; then
+            BASE="$GH_BASE_REF"
+          elif [ "$GH_BEFORE" == "0000000000000000000000000000000000000000" ]; then
+            BASE="dev"
+          else
+            BASE="$GH_BEFORE"
+          fi
+          echo "base=$BASE" >> $GITHUB_OUTPUT
+
       # Merged root config + service + CI filters into a single paths-filter step
       - name: Check for path changes
         id: filter
         uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
         with:
-          base: ${{ github.event_name == 'pull_request' && github.base_ref || (github.event.before == '0000000000000000000000000000000000000000' && 'dev' || github.event.before) }}
+          base: ${{ steps.base-ref.outputs.base }}
           filters: |
             root:
               - 'package.json'
