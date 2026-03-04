@@ -154,6 +154,7 @@ jobs:
         run: |
           BUILD_ALL="${{ needs.detect-changes.outputs.build-all }}"
           IS_NEW_BRANCH="${{ needs.detect-changes.outputs.is-new-branch }}"
+          CI_CHANGED="${{ needs.detect-changes.outputs.ci }}"
 
           # Map matrix.service to its individual detect-changes output
           case "${{ matrix.service }}" in
@@ -164,7 +165,7 @@ jobs:
             shared)               CHANGED="${{ needs.detect-changes.outputs.shared }}" ;;
           esac
 
-          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CHANGED" == "true" ]; then
+          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CI_CHANGED" == "true" ] || [ "$CHANGED" == "true" ]; then
             echo "run=true" >> $GITHUB_OUTPUT
             echo "✅ ${{ matrix.service }} - running tests"
           else
