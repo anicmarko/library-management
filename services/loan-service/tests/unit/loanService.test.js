@@ -45,6 +45,16 @@ jest.mock('../../src/messaging/subscriber', () => ({
   getDeletedBooksCount: jest.fn().mockReturnValue(0)
 }));
 
+const mockCheckBookAvailability = jest.fn().mockResolvedValue({
+  available: true,
+  found: true,
+  message: 'Book is available',
+});
+
+jest.mock('../../src/grpc/client', () => ({
+  checkBookAvailability: mockCheckBookAvailability,
+}));
+
 jest.mock('../../src/utils/logger', () => ({
   info: jest.fn(),
   error: jest.fn(),
@@ -57,6 +67,7 @@ const app = require('../../src/index');
 const subscriber = require('../../src/messaging/subscriber');
 const publisher = require('../../src/messaging/publisher');
 const db = require('../../src/db/db');
+const { checkBookAvailability } = require('../../src/grpc/client');
 
 describe('Loan Service', () => {
   beforeEach(() => {
@@ -68,6 +79,8 @@ describe('Loan Service', () => {
     mockLoanModel.findAll.mockResolvedValue([mockLoan]);
     mockLoanModel.findByPk.mockResolvedValue(mockLoan);
     mockLoanModel.create.mockResolvedValue(mockLoan);
+
+    mockCheckBookAvailability.mockResolvedValue({ available: true, found: true, message: 'Book is available' });
   });
 
   describe('GET /health', () => {
@@ -234,6 +247,41 @@ describe('Loan Service', () => {
       expect(response.status).toBe(422);
       expect(response.body.success).toBe(false);
       expect(response.body.details.dueDate).toBeDefined();
+    });
+
+    test('should return 404 when gRPC reports book not found', async () => {
+      mockCheckBookAvailability.mockResolvedValueOnce({ available: false, found: false, message: 'Book not found' });
+
+      const response = await request(app)
+        .post('/loans')
+        .send({ bookId: 'nonexistent', userId: 1, dueDate: '2024-01-15' });
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Book not found');
+    });
+
+    test('should return 409 when gRPC reports book not available', async () => {
+      mockCheckBookAvailability.mockResolvedValueOnce({ available: false, found: true, message: 'Book is not available' });
+
+      const response = await request(app)
+        .post('/loans')
+        .send({ bookId: 'book123', userId: 1, dueDate: '2024-01-15' });
+
+      expect(response.status).toBe(409);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Book is not available');
+    });
+
+    test('should allow loan creation when gRPC degrades gracefully', async () => {
+      mockCheckBookAvailability.mockResolvedValueOnce({ available: true, found: true, message: 'gRPC unavailable — proceeding' });
+
+      const response = await request(app)
+        .post('/loans')
+        .send({ bookId: 'book123', userId: 1, dueDate: '2024-01-15' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
     });
   });
 
