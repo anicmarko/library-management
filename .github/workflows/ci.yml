@@ -134,6 +134,8 @@ jobs:
     permissions:
       checks: write
       contents: read
+      pull-requests: write
+      actions: read
     strategy:
       matrix:
         service: [book-service, loan-service, user-service, notification-service, shared]
@@ -365,9 +367,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: coverage-report-*
-          merge-multiple: true
           path: coverage/
         continue-on-error: true
+
+      - name: Prefix lcov SF paths with service directory
+        run: |
+          for lcov in coverage/coverage-report-*/lcov.info; do
+            [ -f "$lcov" ] || continue
+            service=$(echo "$lcov" | sed 's|coverage/coverage-report-\(.*\)/lcov.info|\1|')
+            sed -i "s|^SF:|SF:services/$service/|g" "$lcov"
+          done
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
