@@ -7,10 +7,12 @@ WORKDIR /workspace/service
 COPY --chmod=755 services/shared/ /workspace/shared/
 COPY --chmod=755 services/notification-service/package*.json ./
 
-RUN cd /workspace/shared && npm install --omit=dev --ignore-scripts && \
+WORKDIR /workspace/shared
+RUN npm install --omit=dev --ignore-scripts && \
     npm cache clean --force
 
-RUN cd /workspace/service && npm install --omit=dev --ignore-scripts && \
+WORKDIR /workspace/service
+RUN npm install --omit=dev --ignore-scripts && \
     npm rebuild sqlite3 && \
     npm cache clean --force
 

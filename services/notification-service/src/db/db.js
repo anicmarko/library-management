@@ -1,5 +1,5 @@
 const { Sequelize } = require('sequelize');
-const path = require('path');
+const path = require('node:path');
 const logger = require('../utils/logger');
 
 const dbPath = process.env.SQLITE_PATH || path.join(__dirname, '../../data/notifications.db');
