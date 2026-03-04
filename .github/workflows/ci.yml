@@ -29,6 +29,7 @@ jobs:
       user-service: ${{ steps.filter.outputs.user-service }}
       notification-service: ${{ steps.filter.outputs.notification-service }}
       shared: ${{ steps.filter.outputs.shared }}
+      ci: ${{ steps.filter.outputs.ci }}
       has-changes: ${{ steps.set-flag.outputs.has-changes }}
       build-all: ${{ steps.set-build-all.outputs.build-all }}
       is-new-branch: ${{ steps.set-flag.outputs.is-new-branch }}
@@ -77,6 +78,11 @@ jobs:
               - 'services/notification-service/**'
             shared:
               - 'services/shared/**'
+            ci:
+              - '.github/**'
+              - '**/Dockerfile'
+              - 'docker-compose*.y*ml'
+              - 'nginx.conf'
 
       - name: Set has-changes flag
         id: set-flag
@@ -94,6 +100,7 @@ jobs:
           USER="${{ steps.filter.outputs.user-service }}"
           NOTIF="${{ steps.filter.outputs.notification-service }}"
           SHARED="${{ steps.filter.outputs.shared }}"
+          CI_CHANGED="${{ steps.filter.outputs.ci }}"
 
           if [ "$IS_NEW_BRANCH" == "true" ] || \
              [ "$BUILD_ALL" == "true" ] || \
@@ -101,7 +108,8 @@ jobs:
              [ "$LOAN" == "true" ] || \
              [ "$USER" == "true" ] || \
              [ "$NOTIF" == "true" ] || \
-             [ "$SHARED" == "true" ]; then
+             [ "$SHARED" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ]; then
             echo "has-changes=true" >> $GITHUB_OUTPUT
           else
             echo "has-changes=false" >> $GITHUB_OUTPUT
