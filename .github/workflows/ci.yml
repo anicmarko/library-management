@@ -28,6 +28,7 @@ jobs:
       loan-service: ${{ steps.filter.outputs.loan-service }}
       user-service: ${{ steps.filter.outputs.user-service }}
       notification-service: ${{ steps.filter.outputs.notification-service }}
+      shared: ${{ steps.filter.outputs.shared }}
       has-changes: ${{ steps.set-flag.outputs.has-changes }}
       build-all: ${{ steps.set-build-all.outputs.build-all }}
       is-new-branch: ${{ steps.set-flag.outputs.is-new-branch }}
@@ -74,6 +75,8 @@ jobs:
               - 'services/user-service/**'
             notification-service:
               - 'services/notification-service/**'
+            shared:
+              - 'services/shared/**'
 
       - name: Set has-changes flag
         id: set-flag
@@ -90,13 +93,15 @@ jobs:
           LOAN="${{ steps.filter.outputs.loan-service }}"
           USER="${{ steps.filter.outputs.user-service }}"
           NOTIF="${{ steps.filter.outputs.notification-service }}"
+          SHARED="${{ steps.filter.outputs.shared }}"
 
           if [ "$IS_NEW_BRANCH" == "true" ] || \
              [ "$BUILD_ALL" == "true" ] || \
              [ "$BOOK" == "true" ] || \
              [ "$LOAN" == "true" ] || \
              [ "$USER" == "true" ] || \
-             [ "$NOTIF" == "true" ]; then
+             [ "$NOTIF" == "true" ] || \
+             [ "$SHARED" == "true" ]; then
             echo "has-changes=true" >> $GITHUB_OUTPUT
           else
             echo "has-changes=false" >> $GITHUB_OUTPUT
@@ -131,7 +136,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        service: [book-service, loan-service, user-service, notification-service]
+        service: [book-service, loan-service, user-service, notification-service, shared]
       fail-fast: false
     steps:
       - name: Check if service changed
@@ -146,6 +151,7 @@ jobs:
             loan-service)         CHANGED="${{ needs.detect-changes.outputs.loan-service }}" ;;
             user-service)         CHANGED="${{ needs.detect-changes.outputs.user-service }}" ;;
             notification-service) CHANGED="${{ needs.detect-changes.outputs.notification-service }}" ;;
+            shared)               CHANGED="${{ needs.detect-changes.outputs.shared }}" ;;
           esac
 
           if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || [ "$CHANGED" == "true" ]; then
