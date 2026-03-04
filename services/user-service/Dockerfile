@@ -10,21 +10,22 @@ COPY src ./src
 
 FROM node:20-alpine AS production
 
-WORKDIR /app
+ENV NODE_ENV=production
 
 RUN apk add --no-cache dumb-init
 
-COPY package*.json ./
+# Create user early so --chown on COPY instructions works; no slow chown -R needed
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+COPY --chown=nodejs:nodejs package*.json ./
 
 RUN npm install --omit=dev --ignore-scripts && \
-    npm cache clean --force && \
-    chmod -R a-w node_modules
+    npm cache clean --force
 
-COPY --from=builder --chmod=555 /app/src ./src
-
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
+COPY --from=builder --chmod=755 --chown=nodejs:nodejs /app/src ./src
 
 USER nodejs
 
