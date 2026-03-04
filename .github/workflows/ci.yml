@@ -261,7 +261,7 @@ jobs:
           path: services/${{ matrix.service }}/coverage/
 
   build:
-    name: Build Docker Images
+    name: Build Docker Images (${{ matrix.service }})
     needs: [unit-tests, detect-changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
