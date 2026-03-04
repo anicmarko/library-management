@@ -59,14 +59,15 @@ jobs:
     needs: [load-outputs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
     if: needs.load-outputs.outputs.has-changes == 'true'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Download compose files from CI artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          name: detect-changes-outputs
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
 
       - name: Copy compose files to VM
         env:
