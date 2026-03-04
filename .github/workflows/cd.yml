@@ -100,7 +100,9 @@ jobs:
           chmod 600 "$KEY_FILE"
           HOST="${VM_HOST//$'\n'/}"
 
-          scp -i "$KEY_FILE" -o StrictHostKeyChecking=no \
+          scp -i "$KEY_FILE" \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
             docker-compose.yaml docker-compose.prod.yml nginx.conf .env \
             "${VM_USER}@${HOST}:~/app/"
 
@@ -111,9 +113,15 @@ jobs:
             [ "$CHG_LOAN" == "true" ]  && SERVICES="$SERVICES loan-service"
             [ "$CHG_USER" == "true" ]  && SERVICES="$SERVICES user-service"
             [ "$CHG_NOTIF" == "true" ] && SERVICES="$SERVICES notification-service"
+            SERVICES="${SERVICES# }"  # trim leading space
           fi
 
-          ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no "${VM_USER}@${HOST}" bash -s << REMOTE
+          ssh -i "$KEY_FILE" \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            -o ServerAliveInterval=20 \
+            -o ServerAliveCountMax=10 \
+            "${VM_USER}@${HOST}" bash -s << REMOTE
             set -e
             echo "$ACR_PASSWORD" | docker login "$ACR_LOGIN_SERVER" -u "$ACR_USERNAME" --password-stdin
             cd ~/app
