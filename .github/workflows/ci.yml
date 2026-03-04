@@ -153,7 +153,7 @@ jobs:
       actions: read
     strategy:
       matrix:
-        service: [book-service, loan-service, user-service, notification-service, shared]
+        service: [book-service, loan-service, user-service, notification-service]
       fail-fast: false # allow other matrix jobs to finish even if one fails
     steps:
       - name: Check if service changed
@@ -168,7 +168,6 @@ jobs:
             loan-service)         CHANGED="${{ needs.detect-changes.outputs.loan-service }}" ;;
             user-service)         CHANGED="${{ needs.detect-changes.outputs.user-service }}" ;;
             notification-service) CHANGED="${{ needs.detect-changes.outputs.notification-service }}" ;;
-            shared)               CHANGED="${{ needs.detect-changes.outputs.shared }}" ;;
           esac
 
           CI_CHANGED="${{ needs.detect-changes.outputs.ci }}"
@@ -203,7 +202,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         if: steps.check_service.outputs.run == 'true'
