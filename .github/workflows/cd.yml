@@ -103,7 +103,8 @@ jobs:
         if: steps.check_service.outputs.changed == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: refs/heads/main
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         if: steps.check_service.outputs.changed == 'true'
