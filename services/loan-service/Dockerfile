@@ -19,12 +19,12 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-COPY --chmod=755 --chown=nodejs:nodejs package*.json ./
+COPY --chmod=755 --chown=root:root package*.json ./
 
 RUN npm install --omit=dev --ignore-scripts && \
     npm cache clean --force
 
-COPY --from=builder --chmod=755 --chown=nodejs:nodejs /app/src ./src
+COPY --from=builder --chmod=755 --chown=root:root /app/src ./src
 
 USER nodejs
 
