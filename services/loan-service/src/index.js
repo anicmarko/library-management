@@ -1,6 +1,7 @@
 require('./tracing');
 require('dotenv').config();
 const express = require('express');
+const { checkBookAvailability } = require('./grpc/client');
 const { trace } = require('@opentelemetry/api');
 const logger = require('./utils/logger');
 const { requestLogger } = require('./utils/logger');
@@ -128,6 +129,20 @@ app.post('/loans', async (req, res) => {
         success: false,
         error: 'Validation failed',
         details: { bookId: 'Cannot create loan for deleted book' }
+      });
+    }
+
+    const bookCheck = await checkBookAvailability(bookId);
+    if (!bookCheck.found) {
+      return res.status(404).json({
+        success: false,
+        error: 'Book not found'
+      });
+    }
+    if (!bookCheck.available) {
+      return res.status(409).json({
+        success: false,
+        error: 'Book is not available'
       });
     }
 
