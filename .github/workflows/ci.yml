@@ -328,15 +328,39 @@ jobs:
         if: steps.check_service.outputs.changed == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
+      - name: Log in to Azure Container Registry
+        if: steps.check_service.outputs.changed == 'true' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        with:
+          registry: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Compute image tags
+        if: steps.check_service.outputs.changed == 'true'
+        id: image_tags
+        env:
+          SERVICE: ${{ matrix.service }}
+          SHA: ${{ github.sha }}
+          IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
+          ACR: ${{ secrets.ACR_LOGIN_SERVER }}
+        run: |
+          if [ "$IS_MAIN" == "true" ]; then
+            BASE="${ACR}/${SERVICE}"
+            echo "tags=${BASE}:latest,${BASE}:${SHA}" >> $GITHUB_OUTPUT
+          else
+            # PR / dev builds — local tag only, no push
+            echo "tags=library-${SERVICE}:ci" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build Docker image
         if: steps.check_service.outputs.changed == 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: ${{ matrix.context }}
           file: ./services/${{ matrix.service }}/Dockerfile
-          # Validation only — image is not published.
-          # Add registry login + push: true when ready to deploy.
-          push: false
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.image_tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -483,3 +507,69 @@ jobs:
             -Dsonar.projectKey=anicmarko_library-management
             -Dsonar.organization=${{ github.repository_owner }}
             -Dsonar.javascript.lcov.reportPaths=coverage/**/lcov.info
+
+  deploy:
+    name: Deploy (${{ matrix.service }})
+    needs: [build, detect-changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    if: github.ref == 'refs/heads/main' && needs.detect-changes.outputs.has-changes == 'true'
+    strategy:
+      matrix:
+        service: [book-service, loan-service, user-service, notification-service]
+      fail-fast: false
+    steps:
+      - name: Check if service should deploy
+        id: check_service
+        env:
+          MATRIX_SERVICE: ${{ matrix.service }}
+          BUILD_ALL: ${{ needs.detect-changes.outputs.build-all }}
+          IS_NEW_BRANCH: ${{ needs.detect-changes.outputs.is-new-branch }}
+          CI_CHANGED: ${{ needs.detect-changes.outputs.ci }}
+          SHARED: ${{ needs.detect-changes.outputs.shared }}
+          CHG_BOOK: ${{ needs.detect-changes.outputs.book-service }}
+          CHG_LOAN: ${{ needs.detect-changes.outputs.loan-service }}
+          CHG_USER: ${{ needs.detect-changes.outputs.user-service }}
+          CHG_NOTIF: ${{ needs.detect-changes.outputs.notification-service }}
+        run: |
+          case "$MATRIX_SERVICE" in
+            book-service)         CHANGED="$CHG_BOOK" ;;
+            loan-service)         CHANGED="$CHG_LOAN" ;;
+            user-service)         CHANGED="$CHG_USER" ;;
+            notification-service) CHANGED="$CHG_NOTIF" ;;
+          esac
+
+          if [ "$IS_NEW_BRANCH" == "true" ] || [ "$BUILD_ALL" == "true" ] || \
+             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
+            echo "deploy=true" >> $GITHUB_OUTPUT
+            echo "✅ $MATRIX_SERVICE - deploying"
+          else
+            echo "deploy=false" >> $GITHUB_OUTPUT
+            echo "⏭️  $MATRIX_SERVICE not changed - skipping deploy"
+          fi
+
+      - name: Deploy via SSH
+        if: steps.check_service.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@029f5b4d67adf17cc0cf6f69b49fd7b62b0c3d76 # v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/app
+            {
+              echo "NODE_ENV=production"
+              echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}"
+              echo "MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}"
+              echo "MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}"
+              echo "MONGO_ROOT_PASSWORD=${{ secrets.MONGO_ROOT_PASSWORD }}"
+              echo "MONGODB_URI=${{ secrets.MONGODB_URI }}"
+              echo "DATABASE_URL=${{ secrets.DATABASE_URL }}"
+              echo "ACR_LOGIN_SERVER=${{ secrets.ACR_LOGIN_SERVER }}"
+              echo "LOG_LEVEL=${{ vars.LOG_LEVEL }}"
+            } > .env
+            chmod 600 .env
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull ${{ matrix.service }}
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml up -d --remove-orphans ${{ matrix.service }}
