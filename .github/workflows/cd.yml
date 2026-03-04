@@ -5,6 +5,12 @@ on:
     workflows: ["CI Pipeline"]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      services:
+        description: 'Services to deploy: all | book-service,loan-service,...'
+        required: true
+        default: 'all'
 
 concurrency:
   group: cd-${{ github.ref }}
@@ -16,10 +22,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 1
     if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
     steps:
-      - run: echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
+      - run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — skipping CI check"
+          else
+            echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
+          fi
 
   load-outputs:
     name: Load CI Change Detection Outputs
@@ -39,6 +52,7 @@ jobs:
       build-all: ${{ steps.parse.outputs.build-all }}
     steps:
       - name: Download change detection outputs from CI
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: detect-changes-outputs
@@ -47,10 +61,27 @@ jobs:
 
       - name: Parse outputs
         id: parse
+        env:
+          INPUT_SERVICES: ${{ github.event.inputs.services }}
         run: |
-          while IFS='=' read -r key value; do
-            echo "${key}=${value}" >> $GITHUB_OUTPUT
-          done < detect-changes.env
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual run: mark requested services (or all) as changed
+            for svc in book-service loan-service user-service notification-service; do
+              if [ "$INPUT_SERVICES" = "all" ] || echo ",$INPUT_SERVICES," | grep -q ",$svc,"; then
+                echo "${svc}=true" >> $GITHUB_OUTPUT
+              else
+                echo "${svc}=false" >> $GITHUB_OUTPUT
+              fi
+            done
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            echo "build-all=false" >> $GITHUB_OUTPUT
+            echo "shared=false" >> $GITHUB_OUTPUT
+            echo "ci=false" >> $GITHUB_OUTPUT
+          else
+            while IFS='=' read -r key value; do
+              echo "${key}=${value}" >> $GITHUB_OUTPUT
+            done < detect-changes.env
+          fi
 
   deploy:
     name: Deploy (${{ matrix.service }})
@@ -64,7 +95,6 @@ jobs:
       matrix:
         service: [book-service, loan-service, user-service, notification-service]
       fail-fast: false
-      max-parallel: 1
     steps:
       - name: Check if service should deploy
         id: check_service
@@ -96,25 +126,81 @@ jobs:
 
       - name: Deploy via SSH
         if: steps.check_service.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            echo "${{ secrets.ACR_PASSWORD }}" | docker login "${{ secrets.ACR_LOGIN_SERVER }}" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
-            cd ~/app
+        env:
+          SERVICE: ${{ matrix.service }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_HOST_KEY: ${{ secrets.VM_HOST_KEY }}
+          ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_ROOT_PASSWORD }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+        run: |
+          KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
+          echo "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+
+          KNOWN_HOSTS_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE" "$KNOWN_HOSTS_FILE"' EXIT
+          echo "$VM_HOST $VM_HOST_KEY" > "$KNOWN_HOSTS_FILE"
+
+          ssh -i "$KEY_FILE" \
+              -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+              -o StrictHostKeyChecking=yes \
+              -o SendEnv="ACR_LOGIN_SERVER ACR_USERNAME ACR_PASSWORD \
+                          POSTGRES_PASSWORD MYSQL_ROOT_PASSWORD MYSQL_PASSWORD \
+                          MONGO_ROOT_PASSWORD MONGODB_URI DATABASE_URL \
+                          LOG_LEVEL SERVICE" \
+              "$VM_USER@$VM_HOST" << 'REMOTE'
+
+            set -euo pipefail
+
+            # FIX 3: Write .env atomically so docker compose never reads a partial file.
+            ENV_TMP=$(mktemp ~/app/.env.tmp.XXXXXX)
+            trap 'rm -f "$ENV_TMP"' EXIT
             {
               echo "NODE_ENV=production"
-              echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}"
-              echo "MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}"
-              echo "MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}"
-              echo "MONGO_ROOT_PASSWORD=${{ secrets.MONGO_ROOT_PASSWORD }}"
-              echo "MONGODB_URI=${{ secrets.MONGODB_URI }}"
-              echo "DATABASE_URL=${{ secrets.DATABASE_URL }}"
-              echo "ACR_LOGIN_SERVER=${{ secrets.ACR_LOGIN_SERVER }}"
-              echo "LOG_LEVEL=${{ vars.LOG_LEVEL }}"
-            } > .env
-            chmod 600 .env
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull ${{ matrix.service }}
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yml up -d --no-deps --remove-orphans ${{ matrix.service }}
+              echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+              echo "MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD"
+              echo "MYSQL_PASSWORD=$MYSQL_PASSWORD"
+              echo "MONGO_ROOT_PASSWORD=$MONGO_ROOT_PASSWORD"
+              echo "MONGODB_URI=$MONGODB_URI"
+              echo "DATABASE_URL=$DATABASE_URL"
+              echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER"
+              echo "LOG_LEVEL=$LOG_LEVEL"
+            } > "$ENV_TMP"
+            chmod 600 "$ENV_TMP"
+            mv "$ENV_TMP" ~/app/.env   # atomic replace
+
+            echo "$ACR_PASSWORD" | docker login "$ACR_LOGIN_SERVER" -u "$ACR_USERNAME" --password-stdin
+
+            cd ~/app
+
+            # FIX 7: Snapshot the current image tag so we can roll back on failure.
+            CURRENT_IMAGE=$(docker compose -f docker-compose.yaml -f docker-compose.prod.yml \
+                              images -q "$SERVICE" 2>/dev/null || true)
+
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull "$SERVICE"
+
+            # FIX 4 + 7: Use --wait so the step only succeeds once the container is
+            # healthy. On failure, restore the previous image immediately.
+            if ! docker compose -f docker-compose.yaml -f docker-compose.prod.yml \
+                   up -d --no-deps --remove-orphans --wait "$SERVICE"; then
+              echo "❌ Deploy failed for $SERVICE — attempting rollback"
+              if [ -n "$CURRENT_IMAGE" ]; then
+                docker tag "$CURRENT_IMAGE" "${ACR_LOGIN_SERVER}/${SERVICE}:rollback-$(date +%s)"
+                docker compose -f docker-compose.yaml -f docker-compose.prod.yml \
+                  up -d --no-deps --remove-orphans --wait "$SERVICE" || true
+              fi
+              exit 1
+            fi
+
+            echo "✅ $SERVICE deployed successfully"
