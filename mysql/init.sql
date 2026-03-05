@@ -1,0 +1,3 @@
+CREATE USER IF NOT EXISTS 'library'@'%' IDENTIFIED BY 'placeholder';
+GRANT ALL PRIVILEGES ON usersdb.* TO 'library'@'%';
+FLUSH PRIVILEGES;

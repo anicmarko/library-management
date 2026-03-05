@@ -146,12 +146,21 @@ jobs:
             echo "build-all=${{ steps.set-build-all.outputs.build-all }}"
             echo "is-new-branch=${{ steps.set-flag.outputs.is-new-branch }}"
           } > /tmp/detect-changes.env
+          cp docker-compose.yaml docker-compose.prod.yml nginx.conf /tmp/
+          cp -r monitoring /tmp/monitoring
+          cp -r mysql /tmp/mysql
 
       - name: Upload change detection outputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: detect-changes-outputs
-          path: /tmp/detect-changes.env
+          path: |
+            /tmp/detect-changes.env
+            /tmp/docker-compose.yaml
+            /tmp/docker-compose.prod.yml
+            /tmp/nginx.conf
+            /tmp/monitoring/
+            /tmp/mysql/
           retention-days: 1
 
   lint:
