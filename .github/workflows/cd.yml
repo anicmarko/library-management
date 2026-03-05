@@ -100,11 +100,20 @@ jobs:
           chmod 600 "$KEY_FILE"
           HOST="${VM_HOST//$'\n'/}"
 
+          ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            "${VM_USER}@${HOST}" mkdir -p ~/app/monitoring
+
           scp -i "$KEY_FILE" \
             -o StrictHostKeyChecking=no \
             -o ConnectTimeout=10 \
             docker-compose.yaml docker-compose.prod.yml nginx.conf .env \
             "${VM_USER}@${HOST}:~/app/"
+
+          scp -i "$KEY_FILE" \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            monitoring/prometheus.yml \
+            "${VM_USER}@${HOST}:~/app/monitoring/"
 
           # Build selective pull list — only pull images that actually changed
           SERVICES=""

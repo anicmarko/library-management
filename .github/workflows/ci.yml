@@ -147,6 +147,7 @@ jobs:
             echo "is-new-branch=${{ steps.set-flag.outputs.is-new-branch }}"
           } > /tmp/detect-changes.env
           cp docker-compose.yaml docker-compose.prod.yml nginx.conf /tmp/
+          cp -r monitoring /tmp/monitoring
 
       - name: Upload change detection outputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -157,6 +158,7 @@ jobs:
             /tmp/docker-compose.yaml
             /tmp/docker-compose.prod.yml
             /tmp/nginx.conf
+            /tmp/monitoring/
           retention-days: 1
 
   lint:
