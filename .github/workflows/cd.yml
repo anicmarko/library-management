@@ -11,23 +11,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ci-status-check:
-    name: Check CI conclusion
-    runs-on: ubuntu-latest
-    timeout-minutes: 1
-    if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
-    steps:
-      - run: echo "CI passed for ${{ github.event.workflow_run.head_sha }} — proceeding with CD"
-
   load-outputs:
     name: Load CI Change Detection Outputs
-    needs: [ci-status-check]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     outputs:
       book-service: ${{ steps.parse.outputs.book-service }}
       loan-service: ${{ steps.parse.outputs.loan-service }}
@@ -37,6 +29,7 @@ jobs:
       ci: ${{ steps.parse.outputs.ci }}
       has-changes: ${{ steps.parse.outputs.has-changes }}
       build-all: ${{ steps.parse.outputs.build-all }}
+      is-new-branch: ${{ steps.parse.outputs.is-new-branch }}
     steps:
       - name: Download change detection outputs from CI
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -44,6 +37,7 @@ jobs:
           name: detect-changes-outputs
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
 
       - name: Parse outputs
         id: parse
@@ -53,68 +47,86 @@ jobs:
           done < detect-changes.env
 
   deploy:
-    name: Deploy (${{ matrix.service }})
+    name: Deploy all services
     needs: [load-outputs]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: read
     if: needs.load-outputs.outputs.has-changes == 'true'
-    strategy:
-      matrix:
-        service: [book-service, loan-service, user-service, notification-service]
-      fail-fast: false
-      max-parallel: 1
     steps:
-      - name: Check if service should deploy
-        id: check_service
+      - name: Download compose files from CI artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: detect-changes-outputs
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+
+      - name: Write .env file
         env:
-          MATRIX_SERVICE: ${{ matrix.service }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_ROOT_PASSWORD }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+        run: |
+          printf 'NODE_ENV=production\nPOSTGRES_PASSWORD=%s\nMYSQL_ROOT_PASSWORD=%s\nMYSQL_PASSWORD=%s\nMONGO_ROOT_PASSWORD=%s\nMONGODB_URI=%s\nDATABASE_URL=%s\nACR_LOGIN_SERVER=%s\nLOG_LEVEL=%s\n' \
+            "$POSTGRES_PASSWORD" "$MYSQL_ROOT_PASSWORD" "$MYSQL_PASSWORD" \
+            "$MONGO_ROOT_PASSWORD" "$MONGODB_URI" "$DATABASE_URL" \
+            "$ACR_LOGIN_SERVER" "$LOG_LEVEL" > .env
+          chmod 600 .env
+
+      - name: Copy files to VM and deploy
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
           BUILD_ALL: ${{ needs.load-outputs.outputs.build-all }}
+          IS_NEW_BRANCH: ${{ needs.load-outputs.outputs.is-new-branch }}
           CI_CHANGED: ${{ needs.load-outputs.outputs.ci }}
-          SHARED: ${{ needs.load-outputs.outputs.shared }}
           CHG_BOOK: ${{ needs.load-outputs.outputs.book-service }}
           CHG_LOAN: ${{ needs.load-outputs.outputs.loan-service }}
           CHG_USER: ${{ needs.load-outputs.outputs.user-service }}
           CHG_NOTIF: ${{ needs.load-outputs.outputs.notification-service }}
         run: |
-          case "$MATRIX_SERVICE" in
-            book-service)         CHANGED="$CHG_BOOK" ;;
-            loan-service)         CHANGED="$CHG_LOAN" ;;
-            user-service)         CHANGED="$CHG_USER" ;;
-            notification-service) CHANGED="$CHG_NOTIF" ;;
-          esac
+          KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
+          printf '%s\n' "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          HOST="${VM_HOST//$'\n'/}"
 
-          if [ "$BUILD_ALL" == "true" ] || \
-             [ "$CI_CHANGED" == "true" ] || [ "$SHARED" == "true" ] || [ "$CHANGED" == "true" ]; then
-            echo "deploy=true" >> $GITHUB_OUTPUT
-            echo "✅ $MATRIX_SERVICE - deploying"
-          else
-            echo "deploy=false" >> $GITHUB_OUTPUT
-            echo "⏭️  $MATRIX_SERVICE not changed - skipping deploy"
+          tar -czf - docker-compose.yaml docker-compose.prod.yml nginx.conf .env monitoring/ mysql/ | \
+            ssh -i "$KEY_FILE" \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 \
+              "${VM_USER}@${HOST}" 'mkdir -p ~/app && tar -xzf - -C ~/app --overwrite --no-same-owner'
+
+          # Build selective pull list — only pull images that actually changed
+          SERVICES=""
+          if [ "$BUILD_ALL" != "true" ] && [ "$IS_NEW_BRANCH" != "true" ] && [ "$CI_CHANGED" != "true" ]; then
+            [ "$CHG_BOOK" == "true" ]  && SERVICES="$SERVICES book-service"
+            [ "$CHG_LOAN" == "true" ]  && SERVICES="$SERVICES loan-service"
+            [ "$CHG_USER" == "true" ]  && SERVICES="$SERVICES user-service"
+            [ "$CHG_NOTIF" == "true" ] && SERVICES="$SERVICES notification-service"
+            SERVICES="${SERVICES# }"  # trim leading space
           fi
 
-      - name: Deploy via SSH
-        if: steps.check_service.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            echo "${{ secrets.ACR_PASSWORD }}" | docker login "${{ secrets.ACR_LOGIN_SERVER }}" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+          ssh -i "$KEY_FILE" \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            -o ServerAliveInterval=20 \
+            -o ServerAliveCountMax=10 \
+            "${VM_USER}@${HOST}" bash -s << REMOTE
+            set -e
+            echo "$ACR_PASSWORD" | docker login "$ACR_LOGIN_SERVER" -u "$ACR_USERNAME" --password-stdin
             cd ~/app
-            {
-              echo "NODE_ENV=production"
-              echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}"
-              echo "MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}"
-              echo "MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}"
-              echo "MONGO_ROOT_PASSWORD=${{ secrets.MONGO_ROOT_PASSWORD }}"
-              echo "MONGODB_URI=${{ secrets.MONGODB_URI }}"
-              echo "DATABASE_URL=${{ secrets.DATABASE_URL }}"
-              echo "ACR_LOGIN_SERVER=${{ secrets.ACR_LOGIN_SERVER }}"
-              echo "LOG_LEVEL=${{ vars.LOG_LEVEL }}"
-            } > .env
-            chmod 600 .env
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull ${{ matrix.service }}
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yml up -d --no-deps --remove-orphans ${{ matrix.service }}
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml pull $SERVICES
+            docker compose -f docker-compose.yaml -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
+            echo "✅ Deployment complete"
+          REMOTE
