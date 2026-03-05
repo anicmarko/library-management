@@ -101,7 +101,7 @@ jobs:
           HOST="${VM_HOST//$'\n'/}"
 
           ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            "${VM_USER}@${HOST}" mkdir -p ~/app/monitoring
+            "${VM_USER}@${HOST}" 'mkdir -p ~/app/monitoring'
 
           scp -i "$KEY_FILE" \
             -o StrictHostKeyChecking=no \
