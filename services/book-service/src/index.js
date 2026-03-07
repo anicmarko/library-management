@@ -103,7 +103,7 @@ app.get('/books/:id', async (req, res) => {
     });
   }
 });
-
+// Create a new book
 app.post('/books', async (req, res) => {
   try {
     const { available } = req.body;
